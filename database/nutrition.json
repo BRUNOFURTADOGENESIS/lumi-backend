@@ -1,0 +1,10 @@
+{
+  "alimentos": {
+    "arroz": {"calories": 130, "proteins": 2.7, "carbs": 28, "fats": 0.3},
+    "feijão": {"calories": 77, "proteins": 5.2, "carbs": 13.6, "fats": 0.5},
+    "frango": {"calories": 165, "proteins": 31, "carbs": 0, "fats": 3.6},
+    "carne": {"calories": 250, "proteins": 26, "carbs": 0, "fats": 15},
+    "ovo": {"calories": 155, "proteins": 13, "carbs": 1.1, "fats": 11},
+    "salada": {"calories": 20, "proteins": 1.4, "carbs": 3.5, "fats": 0.2}
+  }
+}

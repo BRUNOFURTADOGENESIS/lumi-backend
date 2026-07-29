@@ -2,8 +2,9 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import { IfcViewerAPI } from 'web-ifc-viewer'
 import { Color, Mesh, MeshLambertMaterial } from 'three'
 import { Box, Eye, EyeOff, RotateCcw, Undo2 } from 'lucide-react'
-import { DISCIPLINE_CONFLICT_LABELS, DISCIPLINE_VIEWER_COLORS } from '../lib/disciplines'
+import { DISCIPLINE_VIEWER_COLORS } from '../lib/disciplines'
 import { detectCollisions, extractElementBoxes } from '../lib/collisionDetection'
+import { buildConflict } from '../lib/conflictModel'
 
 const HIGHLIGHT_COLOR_A = 0xef4444 // Elemento A: vermelho
 const HIGHLIGHT_COLOR_B = 0xf97316 // Elemento B: laranja
@@ -123,24 +124,18 @@ const Viewer = forwardRef(function Viewer({ onClearFocus }, ref) {
 
       const conflicts = []
       for (const collision of collisions) {
-        const [nameA, nameB] = await Promise.all([
+        const [elementAName, elementBName] = await Promise.all([
           resolveName(collision.disciplineA, collision.elementA.expressID),
           resolveName(collision.disciplineB, collision.elementB.expressID),
         ])
-        conflicts.push({
-          id: String(conflicts.length + 1).padStart(3, '0'),
-          disciplinePair: `${DISCIPLINE_CONFLICT_LABELS[collision.disciplineA] ?? collision.disciplineA} × ${
-            DISCIPLINE_CONFLICT_LABELS[collision.disciplineB] ?? collision.disciplineB
-          }`,
-          elementA: nameA,
-          elementB: nameB,
-          severity: collision.severity,
-          disciplineA: collision.disciplineA,
-          disciplineB: collision.disciplineB,
-          expressIDA: collision.elementA.expressID,
-          expressIDB: collision.elementB.expressID,
-          box: collision.elementA.box.clone().union(collision.elementB.box),
-        })
+        conflicts.push(
+          buildConflict({
+            id: String(conflicts.length + 1).padStart(3, '0'),
+            collision,
+            elementAName,
+            elementBName,
+          }),
+        )
       }
 
       return { conflicts, totalElements }

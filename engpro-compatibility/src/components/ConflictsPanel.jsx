@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { AlertTriangle, Search, ShieldAlert, X } from 'lucide-react'
+import { AlertTriangle, Search, Sparkles, ShieldAlert, X } from 'lucide-react'
 import { DISCIPLINE_CONFLICT_LABELS } from '../lib/disciplines'
 
 const DISCIPLINE_FILTERS = ['arquitetura', 'estrutural', 'eletrica', 'hidraulico']
@@ -24,7 +24,13 @@ function toggleInSet(set, value) {
   return next
 }
 
-export default function ConflictsPanel({ conflicts = [], hasProcessed = false, activeConflictId = null, onSelectConflict }) {
+export default function ConflictsPanel({
+  conflicts = [],
+  hasProcessed = false,
+  activeConflictId = null,
+  onSelectConflict,
+  onAnalyzeConflict,
+}) {
   const [disciplineFilter, setDisciplineFilter] = useState(() => new Set())
   const [severityFilter, setSeverityFilter] = useState(() => new Set())
   const [search, setSearch] = useState('')
@@ -162,10 +168,12 @@ export default function ConflictsPanel({ conflicts = [], hasProcessed = false, a
             const isActive = conflict.id === activeConflictId
             return (
               <li key={conflict.id}>
-                <button
-                  type="button"
+                <div
+                  role="button"
+                  tabIndex={0}
                   onClick={() => onSelectConflict?.(conflict)}
-                  className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                  onKeyDown={(e) => e.key === 'Enter' && onSelectConflict?.(conflict)}
+                  className={`w-full cursor-pointer rounded-lg border p-3 text-left transition-colors ${
                     isActive
                       ? 'border-eng-accent bg-eng-accent/10'
                       : 'border-eng-border bg-eng-bg/60 hover:border-eng-accent/50'
@@ -180,7 +188,9 @@ export default function ConflictsPanel({ conflicts = [], hasProcessed = false, a
                       {conflict.severity}
                     </span>
                   </div>
-                  <p className="mt-1 text-xs font-medium text-eng-accent">{conflict.disciplinePair}</p>
+                  <p className="mt-1 text-xs font-medium text-eng-accent">
+                    {conflict.disciplineLabelA} × {conflict.disciplineLabelB}
+                  </p>
                   <div className="mt-2 space-y-1 text-xs text-eng-muted">
                     <p>
                       <span className="text-eng-text">Elemento A:</span> {conflict.elementA}
@@ -189,7 +199,19 @@ export default function ConflictsPanel({ conflicts = [], hasProcessed = false, a
                       <span className="text-eng-text">Elemento B:</span> {conflict.elementB}
                     </p>
                   </div>
-                </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onAnalyzeConflict?.(conflict)
+                    }}
+                    className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-md border border-eng-accent/40 bg-eng-accent/10 py-1.5 text-xs font-medium text-eng-accent transition-colors hover:bg-eng-accent/20"
+                  >
+                    <Sparkles size={13} />
+                    Analisar com IA
+                  </button>
+                </div>
               </li>
             )
           })}

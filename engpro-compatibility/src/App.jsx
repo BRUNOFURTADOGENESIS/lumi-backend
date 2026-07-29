@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar'
 import Viewer from './components/Viewer'
 import ConflictsPanel from './components/ConflictsPanel'
 import StatsPanel from './components/StatsPanel'
+import AiAnalysisModal from './components/AiAnalysisModal'
 
 const EMPTY_FILES = {
   arquitetura: null,
@@ -19,6 +20,7 @@ function App() {
   const [totalElements, setTotalElements] = useState(0)
   const [hasProcessed, setHasProcessed] = useState(false)
   const [activeConflictId, setActiveConflictId] = useState(null)
+  const [aiConflict, setAiConflict] = useState(null)
   const viewerRef = useRef(null)
 
   const resetResults = () => {
@@ -60,6 +62,10 @@ function App() {
     setActiveConflictId(null)
   }
 
+  const handleAnalyzeConflict = (conflict) => {
+    setAiConflict(conflict)
+  }
+
   const totalDisciplines = Object.values(files).filter(Boolean).length
 
   return (
@@ -85,8 +91,11 @@ function App() {
           hasProcessed={hasProcessed}
           activeConflictId={activeConflictId}
           onSelectConflict={handleSelectConflict}
+          onAnalyzeConflict={handleAnalyzeConflict}
         />
       </div>
+
+      <AiAnalysisModal conflict={aiConflict} onClose={() => setAiConflict(null)} />
     </div>
   )
 }

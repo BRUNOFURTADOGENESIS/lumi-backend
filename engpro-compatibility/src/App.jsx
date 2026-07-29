@@ -15,26 +15,43 @@ function App() {
   const [files, setFiles] = useState(EMPTY_FILES)
   const [isProcessing, setIsProcessing] = useState(false)
   const [conflicts, setConflicts] = useState([])
+  const [hasProcessed, setHasProcessed] = useState(false)
+  const [activeConflictId, setActiveConflictId] = useState(null)
   const viewerRef = useRef(null)
 
   const handleSelect = (discipline, file) => {
     setFiles((prev) => ({ ...prev, [discipline]: file }))
     setConflicts([])
+    setHasProcessed(false)
+    setActiveConflictId(null)
   }
 
   const handleClear = (discipline) => {
     setFiles((prev) => ({ ...prev, [discipline]: null }))
     setConflicts([])
+    setHasProcessed(false)
+    setActiveConflictId(null)
   }
 
   const handleProcess = async () => {
     setIsProcessing(true)
+    setActiveConflictId(null)
     try {
       const result = await viewerRef.current?.processFiles(files)
       setConflicts(result ?? [])
+      setHasProcessed(true)
     } finally {
       setIsProcessing(false)
     }
+  }
+
+  const handleSelectConflict = (conflict) => {
+    viewerRef.current?.focusConflict(conflict)
+    setActiveConflictId(conflict.id)
+  }
+
+  const handleClearFocus = () => {
+    setActiveConflictId(null)
   }
 
   return (
@@ -48,8 +65,13 @@ function App() {
           onProcess={handleProcess}
           isProcessing={isProcessing}
         />
-        <Viewer ref={viewerRef} />
-        <ConflictsPanel conflicts={conflicts} />
+        <Viewer ref={viewerRef} onClearFocus={handleClearFocus} />
+        <ConflictsPanel
+          conflicts={conflicts}
+          hasProcessed={hasProcessed}
+          activeConflictId={activeConflictId}
+          onSelectConflict={handleSelectConflict}
+        />
       </div>
     </div>
   )

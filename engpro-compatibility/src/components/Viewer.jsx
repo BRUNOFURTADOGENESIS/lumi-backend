@@ -1,16 +1,24 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { IfcViewerAPI } from 'web-ifc-viewer'
-import { Color } from 'three'
-import { Box, Eye, EyeOff, RotateCcw } from 'lucide-react'
+import { Color, Mesh, MeshLambertMaterial } from 'three'
+import { Box, Eye, EyeOff, RotateCcw, Undo2 } from 'lucide-react'
 import { DISCIPLINE_CONFLICT_LABELS, DISCIPLINE_VIEWER_COLORS } from '../lib/disciplines'
 import { detectCollisions, extractElementBoxes } from '../lib/collisionDetection'
 
-const Viewer = forwardRef(function Viewer(_props, ref) {
+const HIGHLIGHT_COLOR_A = 0xef4444 // Elemento A: vermelho
+const HIGHLIGHT_COLOR_B = 0xf97316 // Elemento B: laranja
+const FADE_OPACITY = 0.18
+
+const Viewer = forwardRef(function Viewer({ onClearFocus }, ref) {
   const containerRef = useRef(null)
   const viewerRef = useRef(null)
   const modelsRef = useRef({})
+  const visibilityRef = useRef({})
+  const fadedMeshesRef = useRef({})
+  const highlightMeshesRef = useRef([])
   const [loadedDisciplines, setLoadedDisciplines] = useState([])
   const [visibility, setVisibility] = useState({})
+  const [focusedConflictId, setFocusedConflictId] = useState(null)
 
   useEffect(() => {
     const container = containerRef.current
@@ -31,10 +39,33 @@ const Viewer = forwardRef(function Viewer(_props, ref) {
     }
   }, [])
 
+  const clearHighlight = () => {
+    const viewer = viewerRef.current
+    if (!viewer) return
+    const scene = viewer.context.getScene()
+
+    Object.entries(fadedMeshesRef.current).forEach(([discipline, ghost]) => {
+      scene.remove(ghost)
+      ghost.material.dispose()
+      const model = modelsRef.current[discipline]
+      if (model) model.visible = visibilityRef.current[discipline] ?? true
+    })
+    fadedMeshesRef.current = {}
+
+    highlightMeshesRef.current.forEach((mesh) => {
+      scene.remove(mesh)
+      mesh.material.dispose()
+    })
+    highlightMeshesRef.current = []
+  }
+
   useImperativeHandle(ref, () => ({
     async processFiles(files) {
       const viewer = viewerRef.current
-      if (!viewer) return
+      if (!viewer) return []
+
+      clearHighlight()
+      setFocusedConflictId(null)
 
       Object.values(modelsRef.current).forEach((model) => {
         if (model) viewer.context.scene.removeModel(model)
@@ -55,7 +86,9 @@ const Viewer = forwardRef(function Viewer(_props, ref) {
 
       const loaded = Object.keys(modelsRef.current)
       setLoadedDisciplines(loaded)
-      setVisibility(Object.fromEntries(loaded.map((d) => [d, true])))
+      const initialVisibility = Object.fromEntries(loaded.map((d) => [d, true]))
+      setVisibility(initialVisibility)
+      visibilityRef.current = initialVisibility
 
       if (loaded.length > 0) {
         viewer.context.fitToFrame()
@@ -101,10 +134,71 @@ const Viewer = forwardRef(function Viewer(_props, ref) {
           elementA: nameA,
           elementB: nameB,
           status: 'Crítico',
+          disciplineA: collision.disciplineA,
+          disciplineB: collision.disciplineB,
+          expressIDA: collision.elementA.expressID,
+          expressIDB: collision.elementB.expressID,
+          box: collision.elementA.box.clone().union(collision.elementB.box),
         })
       }
 
       return conflicts
+    },
+
+    focusConflict(conflict) {
+      const viewer = viewerRef.current
+      const modelA = modelsRef.current[conflict.disciplineA]
+      const modelB = modelsRef.current[conflict.disciplineB]
+      if (!viewer || !modelA || !modelB) return
+
+      clearHighlight()
+
+      const scene = viewer.context.getScene()
+      const ifcManager = viewer.IFC.loader.ifcManager
+
+      Object.entries(modelsRef.current).forEach(([discipline, model]) => {
+        const ghost = new Mesh(
+          model.geometry,
+          new MeshLambertMaterial({ color: 0xffffff, opacity: FADE_OPACITY, transparent: true, depthWrite: false }),
+        )
+        ghost.applyMatrix4(model.matrixWorld)
+        scene.add(ghost)
+        fadedMeshesRef.current[discipline] = ghost
+        model.visible = false
+      })
+
+      const subsetA = ifcManager.createSubset({
+        modelID: modelA.modelID,
+        ids: [conflict.expressIDA],
+        material: new MeshLambertMaterial({ color: HIGHLIGHT_COLOR_A }),
+        scene,
+        removePrevious: true,
+        customID: 'conflict-element-a',
+      })
+      const subsetB = ifcManager.createSubset({
+        modelID: modelB.modelID,
+        ids: [conflict.expressIDB],
+        material: new MeshLambertMaterial({ color: HIGHLIGHT_COLOR_B }),
+        scene,
+        removePrevious: true,
+        customID: 'conflict-element-b',
+      })
+      highlightMeshesRef.current = [subsetA, subsetB]
+
+      viewer.context.ifcCamera.cameraControls.fitToBox(conflict.box, true, {
+        paddingLeft: 1,
+        paddingRight: 1,
+        paddingTop: 1,
+        paddingBottom: 1,
+      })
+
+      setFocusedConflictId(conflict.id)
+    },
+
+    clearFocus() {
+      clearHighlight()
+      viewerRef.current?.context.ifcCamera.cameraControls.reset(true)
+      setFocusedConflictId(null)
     },
   }))
 
@@ -112,11 +206,19 @@ const Viewer = forwardRef(function Viewer(_props, ref) {
     viewerRef.current?.context.ifcCamera.cameraControls.reset(true)
   }
 
+  const handleBackToOverview = () => {
+    clearHighlight()
+    viewerRef.current?.context.ifcCamera.cameraControls.reset(true)
+    setFocusedConflictId(null)
+    onClearFocus?.()
+  }
+
   const toggleVisibility = (discipline) => {
     setVisibility((prev) => {
       const next = !prev[discipline]
       const model = modelsRef.current[discipline]
-      if (model) model.visible = next
+      if (model && focusedConflictId === null) model.visible = next
+      visibilityRef.current = { ...visibilityRef.current, [discipline]: next }
       return { ...prev, [discipline]: next }
     })
   }
@@ -155,6 +257,17 @@ const Viewer = forwardRef(function Viewer(_props, ref) {
               </button>
             )
           })}
+
+          {focusedConflictId !== null && (
+            <button
+              type="button"
+              onClick={handleBackToOverview}
+              className="flex items-center gap-1.5 rounded-full border border-eng-accent bg-eng-accent/15 px-3 py-1.5 text-xs font-medium text-eng-accent transition-colors hover:bg-eng-accent/25"
+            >
+              <Undo2 size={13} />
+              Voltar para visão geral
+            </button>
+          )}
 
           <button
             type="button"

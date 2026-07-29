@@ -10,14 +10,15 @@ const DISCIPLINES = [
 
 export default function Sidebar({ files, onSelect, onClear, onProcess, isProcessing }) {
   const uploadedCount = Object.values(files).filter(Boolean).length
-  const canProcess = uploadedCount > 0 && !isProcessing
+  const allUploaded = uploadedCount === DISCIPLINES.length
+  const canProcess = allUploaded && !isProcessing
 
   return (
     <aside className="flex w-full shrink-0 flex-col gap-5 border-b border-eng-border bg-eng-card p-4 sm:p-5 lg:w-80 lg:border-b-0 lg:border-r lg:overflow-y-auto">
       <div>
         <h2 className="text-sm font-semibold text-eng-text">Upload de Arquivos</h2>
         <p className="mt-0.5 text-xs text-eng-muted">
-          {uploadedCount}/{DISCIPLINES.length} disciplinas carregadas
+          {uploadedCount}/{DISCIPLINES.length} arquivos obrigatórios enviados
         </p>
       </div>
 
@@ -34,28 +35,35 @@ export default function Sidebar({ files, onSelect, onClear, onProcess, isProcess
         ))}
       </div>
 
-      <button
-        type="button"
-        disabled={!canProcess}
-        onClick={onProcess}
-        className={`mt-auto flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold transition-colors ${
-          canProcess
-            ? 'bg-eng-accent text-eng-bg hover:bg-eng-accent/90 active:bg-eng-accent/80'
-            : 'cursor-not-allowed bg-eng-border/60 text-eng-muted'
-        }`}
-      >
-        {isProcessing ? (
-          <>
-            <Loader2 size={18} className="animate-spin" />
-            Processando...
-          </>
-        ) : (
-          <>
-            <PlayCircle size={18} />
-            Processar
-          </>
+      <div className="mt-auto flex flex-col gap-2">
+        <button
+          type="button"
+          disabled={!canProcess}
+          onClick={onProcess}
+          className={`flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold transition-colors ${
+            canProcess
+              ? 'bg-eng-accent text-eng-bg hover:bg-eng-accent/90 active:bg-eng-accent/80'
+              : 'cursor-not-allowed bg-eng-border/60 text-eng-muted'
+          }`}
+        >
+          {isProcessing ? (
+            <>
+              <Loader2 size={18} className="animate-spin" />
+              Processando...
+            </>
+          ) : (
+            <>
+              <PlayCircle size={18} />
+              Processar
+            </>
+          )}
+        </button>
+        {!allUploaded && (
+          <p className="text-center text-xs text-eng-muted">
+            Envie os {DISCIPLINES.length} arquivos obrigatórios para habilitar o processamento.
+          </p>
         )}
-      </button>
+      </div>
     </aside>
   )
 }

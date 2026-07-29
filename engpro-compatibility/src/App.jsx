@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import Viewer from './components/Viewer'
@@ -14,6 +14,7 @@ const EMPTY_FILES = {
 function App() {
   const [files, setFiles] = useState(EMPTY_FILES)
   const [isProcessing, setIsProcessing] = useState(false)
+  const viewerRef = useRef(null)
 
   const handleSelect = (discipline, file) => {
     setFiles((prev) => ({ ...prev, [discipline]: file }))
@@ -23,9 +24,13 @@ function App() {
     setFiles((prev) => ({ ...prev, [discipline]: null }))
   }
 
-  const handleProcess = () => {
+  const handleProcess = async () => {
     setIsProcessing(true)
-    setTimeout(() => setIsProcessing(false), 1400)
+    try {
+      await viewerRef.current?.processFiles(files)
+    } finally {
+      setIsProcessing(false)
+    }
   }
 
   return (
@@ -39,7 +44,7 @@ function App() {
           onProcess={handleProcess}
           isProcessing={isProcessing}
         />
-        <Viewer />
+        <Viewer ref={viewerRef} />
         <ConflictsPanel />
       </div>
     </div>

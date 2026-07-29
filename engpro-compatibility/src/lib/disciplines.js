@@ -4,3 +4,10 @@ export const DISCIPLINE_VIEWER_COLORS = {
   eletrica: { hex: 0xeab308, label: 'Elétrica', swatch: '#eab308' },
   hidraulico: { hex: 0x22c55e, label: 'Hidráulico', swatch: '#22c55e' },
 }
+
+export const DISCIPLINE_CONFLICT_LABELS = {
+  arquitetura: 'Arquitetura',
+  estrutural: 'Estrutura',
+  eletrica: 'Elétrica',
+  hidraulico: 'Hidráulica',
+}

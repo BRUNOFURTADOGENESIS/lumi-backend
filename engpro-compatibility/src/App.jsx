@@ -14,20 +14,24 @@ const EMPTY_FILES = {
 function App() {
   const [files, setFiles] = useState(EMPTY_FILES)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [conflicts, setConflicts] = useState([])
   const viewerRef = useRef(null)
 
   const handleSelect = (discipline, file) => {
     setFiles((prev) => ({ ...prev, [discipline]: file }))
+    setConflicts([])
   }
 
   const handleClear = (discipline) => {
     setFiles((prev) => ({ ...prev, [discipline]: null }))
+    setConflicts([])
   }
 
   const handleProcess = async () => {
     setIsProcessing(true)
     try {
-      await viewerRef.current?.processFiles(files)
+      const result = await viewerRef.current?.processFiles(files)
+      setConflicts(result ?? [])
     } finally {
       setIsProcessing(false)
     }
@@ -45,7 +49,7 @@ function App() {
           isProcessing={isProcessing}
         />
         <Viewer ref={viewerRef} />
-        <ConflictsPanel />
+        <ConflictsPanel conflicts={conflicts} />
       </div>
     </div>
   )

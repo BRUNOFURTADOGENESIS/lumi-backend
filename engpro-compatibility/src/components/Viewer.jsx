@@ -2,7 +2,8 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import { IfcViewerAPI } from 'web-ifc-viewer'
 import { Color } from 'three'
 import { Box, Eye, EyeOff, RotateCcw } from 'lucide-react'
-import { DISCIPLINE_VIEWER_COLORS } from '../lib/disciplines'
+import { DISCIPLINE_CONFLICT_LABELS, DISCIPLINE_VIEWER_COLORS } from '../lib/disciplines'
+import { detectCollisions, extractElementBoxes } from '../lib/collisionDetection'
 
 const Viewer = forwardRef(function Viewer(_props, ref) {
   const containerRef = useRef(null)
@@ -60,6 +61,50 @@ const Viewer = forwardRef(function Viewer(_props, ref) {
         viewer.context.fitToFrame()
         viewer.context.ifcCamera.cameraControls.saveState()
       }
+
+      const elementsByDiscipline = Object.fromEntries(
+        Object.entries(modelsRef.current).map(([discipline, model]) => [
+          discipline,
+          extractElementBoxes(model),
+        ]),
+      )
+      const collisions = detectCollisions(elementsByDiscipline)
+
+      const nameCache = new Map()
+      const resolveName = async (discipline, expressID) => {
+        const cacheKey = `${discipline}:${expressID}`
+        if (nameCache.has(cacheKey)) return nameCache.get(cacheKey)
+
+        const model = modelsRef.current[discipline]
+        let name = `Elemento #${expressID}`
+        try {
+          const props = await viewer.IFC.getProperties(model.modelID, expressID, false)
+          if (props?.Name?.value) name = props.Name.value
+        } catch {
+          // keep fallback name
+        }
+        nameCache.set(cacheKey, name)
+        return name
+      }
+
+      const conflicts = []
+      for (const collision of collisions) {
+        const [nameA, nameB] = await Promise.all([
+          resolveName(collision.disciplineA, collision.elementA.expressID),
+          resolveName(collision.disciplineB, collision.elementB.expressID),
+        ])
+        conflicts.push({
+          id: String(conflicts.length + 1).padStart(3, '0'),
+          disciplinePair: `${DISCIPLINE_CONFLICT_LABELS[collision.disciplineA] ?? collision.disciplineA} × ${
+            DISCIPLINE_CONFLICT_LABELS[collision.disciplineB] ?? collision.disciplineB
+          }`,
+          elementA: nameA,
+          elementB: nameB,
+          status: 'Crítico',
+        })
+      }
+
+      return conflicts
     },
   }))
 

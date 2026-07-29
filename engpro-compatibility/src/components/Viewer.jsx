@@ -62,7 +62,7 @@ const Viewer = forwardRef(function Viewer({ onClearFocus }, ref) {
   useImperativeHandle(ref, () => ({
     async processFiles(files) {
       const viewer = viewerRef.current
-      if (!viewer) return []
+      if (!viewer) return { conflicts: [], totalElements: 0 }
 
       clearHighlight()
       setFocusedConflictId(null)
@@ -102,6 +102,7 @@ const Viewer = forwardRef(function Viewer({ onClearFocus }, ref) {
         ]),
       )
       const collisions = detectCollisions(elementsByDiscipline)
+      const totalElements = Object.values(elementsByDiscipline).reduce((sum, arr) => sum + arr.length, 0)
 
       const nameCache = new Map()
       const resolveName = async (discipline, expressID) => {
@@ -133,7 +134,7 @@ const Viewer = forwardRef(function Viewer({ onClearFocus }, ref) {
           }`,
           elementA: nameA,
           elementB: nameB,
-          status: 'Crítico',
+          severity: collision.severity,
           disciplineA: collision.disciplineA,
           disciplineB: collision.disciplineB,
           expressIDA: collision.elementA.expressID,
@@ -142,7 +143,7 @@ const Viewer = forwardRef(function Viewer({ onClearFocus }, ref) {
         })
       }
 
-      return conflicts
+      return { conflicts, totalElements }
     },
 
     focusConflict(conflict) {

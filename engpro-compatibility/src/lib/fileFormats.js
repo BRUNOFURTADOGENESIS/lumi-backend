@@ -13,6 +13,7 @@ export const ACCEPTED_EXTENSIONS = [
   '.nwd', // Navisworks
   '.nwc', // Navisworks cache
   '.pln', // ArchiCAD
+  '.pdf', // 2D plans/drawings exported from any of the above
 ]
 
 export function isViewableFile(fileName) {

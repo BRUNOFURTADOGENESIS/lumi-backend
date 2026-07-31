@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertCircle, CheckCircle2, UploadCloud, X } from 'lucide-react'
+import { AlertCircle, AlertTriangle, CheckCircle2, UploadCloud, X } from 'lucide-react'
+import { ACCEPTED_EXTENSIONS, isAcceptedFile, isViewableFile } from '../lib/fileFormats'
 
 function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`
@@ -22,14 +23,16 @@ export default function UploadField({ icon: Icon, label, file, onSelect, onClear
     const picked = fileList?.[0]
     if (!picked) return
 
-    if (!picked.name.toLowerCase().endsWith('.ifc')) {
-      setError('Apenas arquivos .ifc são aceitos.')
+    if (!isAcceptedFile(picked.name)) {
+      setError(`Formato não suportado. Aceitos: ${ACCEPTED_EXTENSIONS.join(', ')}`)
       return
     }
 
     setError(null)
     onSelect(picked)
   }
+
+  const fileIsViewable = file ? isViewableFile(file.name) : true
 
   return (
     <div>
@@ -58,7 +61,9 @@ export default function UploadField({ icon: Icon, label, file, onSelect, onClear
           error
             ? 'border-eng-error/50 bg-eng-error/10'
             : file
-              ? 'border-eng-success/40 bg-eng-success/10'
+              ? fileIsViewable
+                ? 'border-eng-success/40 bg-eng-success/10'
+                : 'border-amber-500/40 bg-amber-500/10'
               : isDragOver
                 ? 'border-eng-accent bg-eng-accent/10'
                 : 'border-dashed border-eng-border bg-eng-bg hover:border-eng-accent/60 hover:bg-eng-accent/5'
@@ -67,7 +72,7 @@ export default function UploadField({ icon: Icon, label, file, onSelect, onClear
         <input
           ref={inputRef}
           type="file"
-          accept=".ifc"
+          accept={ACCEPTED_EXTENSIONS.join(',')}
           className="hidden"
           onChange={(e) => {
             handleFiles(e.target.files)
@@ -78,7 +83,11 @@ export default function UploadField({ icon: Icon, label, file, onSelect, onClear
         {error ? (
           <AlertCircle size={18} className="shrink-0 text-eng-error" />
         ) : file ? (
-          <CheckCircle2 size={18} className="shrink-0 text-eng-success" />
+          fileIsViewable ? (
+            <CheckCircle2 size={18} className="shrink-0 text-eng-success" />
+          ) : (
+            <AlertTriangle size={18} className="shrink-0 text-amber-400" />
+          )
         ) : (
           <UploadCloud size={18} className="shrink-0 text-eng-muted group-hover:text-eng-accent" />
         )}
@@ -89,11 +98,14 @@ export default function UploadField({ icon: Icon, label, file, onSelect, onClear
           ) : file ? (
             <>
               <p className="truncate text-sm text-eng-text">{file.name}</p>
-              <p className="text-xs text-eng-muted">{formatSize(file.size)}</p>
+              <p className="text-xs text-eng-muted">
+                {formatSize(file.size)}
+                {!fileIsViewable && ' · sem visualização 3D neste formato'}
+              </p>
             </>
           ) : (
             <p className="text-sm text-eng-muted">
-              Arraste ou <span className="text-eng-accent">selecione</span> um arquivo .ifc
+              Arraste ou <span className="text-eng-accent">selecione</span> um arquivo de projeto
             </p>
           )}
         </div>

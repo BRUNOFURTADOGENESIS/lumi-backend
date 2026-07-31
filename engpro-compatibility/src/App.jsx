@@ -21,6 +21,7 @@ function App() {
   const [hasProcessed, setHasProcessed] = useState(false)
   const [activeConflictId, setActiveConflictId] = useState(null)
   const [aiConflict, setAiConflict] = useState(null)
+  const [skippedDisciplines, setSkippedDisciplines] = useState([])
   const viewerRef = useRef(null)
 
   const resetResults = () => {
@@ -28,6 +29,7 @@ function App() {
     setTotalElements(0)
     setHasProcessed(false)
     setActiveConflictId(null)
+    setSkippedDisciplines([])
   }
 
   const handleSelect = (discipline, file) => {
@@ -47,6 +49,7 @@ function App() {
       const result = await viewerRef.current?.processFiles(files)
       setConflicts(result?.conflicts ?? [])
       setTotalElements(result?.totalElements ?? 0)
+      setSkippedDisciplines(result?.skippedDisciplines ?? [])
       setHasProcessed(true)
     } finally {
       setIsProcessing(false)
@@ -84,6 +87,7 @@ function App() {
           onClear={handleClear}
           onProcess={handleProcess}
           isProcessing={isProcessing}
+          skippedDisciplines={skippedDisciplines}
         />
         <Viewer ref={viewerRef} onClearFocus={handleClearFocus} />
         <ConflictsPanel

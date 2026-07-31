@@ -1,5 +1,6 @@
-import { Building2, Droplets, Layers3, Loader2, PlayCircle, Zap } from 'lucide-react'
+import { AlertTriangle, Building2, Droplets, Layers3, Loader2, PlayCircle, Zap } from 'lucide-react'
 import UploadField from './UploadField'
+import { DISCIPLINE_CONFLICT_LABELS } from '../lib/disciplines'
 
 const DISCIPLINES = [
   { key: 'arquitetura', label: 'Arquitetura IFC', icon: Building2 },
@@ -8,7 +9,7 @@ const DISCIPLINES = [
   { key: 'eletrica', label: 'Elétrica IFC', icon: Zap },
 ]
 
-export default function Sidebar({ files, onSelect, onClear, onProcess, isProcessing }) {
+export default function Sidebar({ files, onSelect, onClear, onProcess, isProcessing, skippedDisciplines = [] }) {
   const uploadedCount = Object.values(files).filter(Boolean).length
   const allUploaded = uploadedCount === DISCIPLINES.length
   const canProcess = allUploaded && !isProcessing
@@ -61,6 +62,16 @@ export default function Sidebar({ files, onSelect, onClear, onProcess, isProcess
         {!allUploaded && (
           <p className="text-center text-xs text-eng-muted">
             Envie os {DISCIPLINES.length} arquivos obrigatórios para habilitar o processamento.
+          </p>
+        )}
+        {skippedDisciplines.length > 0 && (
+          <p className="flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-xs text-amber-400">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span>
+              {skippedDisciplines.map((d) => DISCIPLINE_CONFLICT_LABELS[d] ?? d).join(', ')}:{' '}
+              {skippedDisciplines.length === 1 ? 'formato' : 'formatos'} sem suporte a visualização 3D
+              nesta versão — arquivo anexado, mas não entra no visualizador nem na detecção de conflitos.
+            </span>
           </p>
         )}
       </div>

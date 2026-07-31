@@ -5,6 +5,7 @@ import { Box, Eye, EyeOff, RotateCcw, Undo2 } from 'lucide-react'
 import { DISCIPLINE_VIEWER_COLORS } from '../lib/disciplines'
 import { detectCollisions, extractElementBoxes } from '../lib/collisionDetection'
 import { buildConflict } from '../lib/conflictModel'
+import { isViewableFile } from '../lib/fileFormats'
 
 const HIGHLIGHT_COLOR_A = 0xef4444 // Elemento A: vermelho
 const HIGHLIGHT_COLOR_B = 0xf97316 // Elemento B: laranja
@@ -63,7 +64,7 @@ const Viewer = forwardRef(function Viewer({ onClearFocus }, ref) {
   useImperativeHandle(ref, () => ({
     async processFiles(files) {
       const viewer = viewerRef.current
-      if (!viewer) return { conflicts: [], totalElements: 0 }
+      if (!viewer) return { conflicts: [], totalElements: 0, skippedDisciplines: [] }
 
       clearHighlight()
       setFocusedConflictId(null)
@@ -74,15 +75,25 @@ const Viewer = forwardRef(function Viewer({ onClearFocus }, ref) {
       modelsRef.current = {}
 
       const entries = Object.entries(files).filter(([, file]) => Boolean(file))
+      const skippedDisciplines = []
 
       for (const [discipline, file] of entries) {
-        const model = await viewer.IFC.loadIfc(file, false)
-        const color = DISCIPLINE_VIEWER_COLORS[discipline]?.hex
-        if (color !== undefined) {
-          const materials = Array.isArray(model.material) ? model.material : [model.material]
-          materials.forEach((mat) => mat?.color?.set(color))
+        if (!isViewableFile(file.name)) {
+          skippedDisciplines.push(discipline)
+          continue
         }
-        modelsRef.current[discipline] = model
+
+        try {
+          const model = await viewer.IFC.loadIfc(file, false)
+          const color = DISCIPLINE_VIEWER_COLORS[discipline]?.hex
+          if (color !== undefined) {
+            const materials = Array.isArray(model.material) ? model.material : [model.material]
+            materials.forEach((mat) => mat?.color?.set(color))
+          }
+          modelsRef.current[discipline] = model
+        } catch {
+          skippedDisciplines.push(discipline)
+        }
       }
 
       const loaded = Object.keys(modelsRef.current)
@@ -138,7 +149,7 @@ const Viewer = forwardRef(function Viewer({ onClearFocus }, ref) {
         )
       }
 
-      return { conflicts, totalElements }
+      return { conflicts, totalElements, skippedDisciplines }
     },
 
     focusConflict(conflict) {

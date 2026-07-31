@@ -29,7 +29,7 @@ const Viewer = forwardRef(function Viewer({ onClearFocus }, ref) {
     })
     viewer.axes.setAxes(8)
     viewer.grid.setGrid(40, 40)
-    viewer.IFC.setWasmPath('/ifc-wasm/')
+    viewer.IFC.setWasmPath(`${import.meta.env.BASE_URL}ifc-wasm/`)
     viewer.context.ifcCamera.cameraControls.saveState()
     viewerRef.current = viewer
 

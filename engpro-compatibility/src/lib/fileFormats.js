@@ -1,14 +1,15 @@
-// IFC is the only format the 3D engine can actually parse. The others are
-// accepted so a discipline's real project file can be attached, but they
-// won't be loaded into the viewer or considered in collision detection.
-export const VIEWABLE_EXTENSIONS = ['.ifc', '.ifczip']
+// IFC and DXF are actually parsed and rendered by the 3D engine. The rest
+// are accepted so a discipline's real project file can be attached, but
+// they won't be loaded into the viewer or considered in collision
+// detection — their formats are proprietary/binary with no viable
+// browser-side open-source parser (see fileFormats notes in the app docs).
+export const VIEWABLE_EXTENSIONS = ['.ifc', '.ifczip', '.dxf']
 
 export const ACCEPTED_EXTENSIONS = [
   ...VIEWABLE_EXTENSIONS,
-  '.rvt', // Revit
+  '.rvt', // Revit — export as IFC from Revit for real 3D support
   '.rfa', // Revit family
-  '.dwg', // AutoCAD
-  '.dxf', // AutoCAD exchange
+  '.dwg', // AutoCAD binary — save/export as .dxf for real 3D support
   '.skp', // SketchUp
   '.nwd', // Navisworks
   '.nwc', // Navisworks cache

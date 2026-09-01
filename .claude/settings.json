@@ -21,6 +21,9 @@
     "backend-api-security@claude-code-workflows": true,
     "error-debugging@claude-code-workflows": true,
     "unit-testing@claude-code-workflows": true,
-    "developer-essentials@claude-code-workflows": true
+    "developer-essentials@claude-code-workflows": true,
+    "superpowers@superpowers-dev": true,
+    "mattpocock-skills@mattpocock": true,
+    "agent-skills@addy-agent-skills": true
   }
 }

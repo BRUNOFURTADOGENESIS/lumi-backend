@@ -2,11 +2,16 @@
   "mcpServers": {
     "codegraph": {
       "type": "stdio",
-      "command": "codegraph",
+      "command": "npx",
       "args": [
+        "codegraph",
         "serve",
         "--mcp"
       ]
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
     }
   }
 }

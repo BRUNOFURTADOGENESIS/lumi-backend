@@ -15,5 +15,12 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "javascript-typescript@claude-code-workflows": true,
+    "backend-api-security@claude-code-workflows": true,
+    "error-debugging@claude-code-workflows": true,
+    "unit-testing@claude-code-workflows": true,
+    "developer-essentials@claude-code-workflows": true
   }
 }

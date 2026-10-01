@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gestão de Obras</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#1b1f24;--mut:#667;--bd:#e2e5ea;--ac:#0f62fe;--ok:#198038;--bad:#da1e28}
+@media(prefers-color-scheme:dark){:root{--bg:#14171a;--card:#1d2125;--tx:#e8eaed;--mut:#9aa;--bd:#2c3238}}
+*{box-sizing:border-box}body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--tx)}
+header{padding:14px 16px;background:var(--card);border-bottom:1px solid var(--bd);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+main{max-width:980px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:14px}
+h2{margin:0 0 10px;font-size:16px}input,select,button{font:inherit;padding:8px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--card);color:var(--tx)}
+button{background:var(--ac);color:#fff;border:0;cursor:pointer}button.sec{background:none;color:var(--ac);border:1px solid var(--ac)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}.row>*{flex:1;min-width:120px}
+table{width:100%;border-collapse:collapse}th,td{padding:7px 6px;border-bottom:1px solid var(--bd);text-align:right}th:first-child,td:first-child{text-align:left}
+th{font-size:12px;color:var(--mut)}.bar{height:6px;background:var(--bd);border-radius:3px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.kpi small{color:var(--mut)}.kpi b{display:block;font-size:20px}
+.over{color:var(--bad)}.hint{color:var(--mut);font-size:13px}.scroll{overflow-x:auto}
+</style></head><body>
+<header><b>🏗️ Gestão de Obras</b><select id="sel" style="flex:0 1 240px"></select>
+<input id="novo" placeholder="Nova obra" style="flex:0 1 200px"><button onclick="criar()">Criar</button></header>
+<main id="app"><p class="hint">Crie ou selecione uma obra.</p></main>
+<script>
+const $=s=>document.querySelector(s),R=v=>(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let obra=null;
+const j=async(u,o)=>{const r=await fetch(u,o);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.erro||r.status);return d};
+async function lista(){const os=await j('/api/obras');$('#sel').innerHTML=os.map(o=>`<option value="${o.id}">${esc(o.nome)}</option>`).join('');
+  if(os.length){obra=obra&&os.find(o=>o.id==obra)?obra:os[0].id;$('#sel').value=obra;render()}}
+$('#sel').onchange=e=>{obra=e.target.value;render()};
+async function criar(){const nome=$('#novo').value.trim();if(!nome)return;const o=await j('/api/obras',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nome})});$('#novo').value='';obra=o.id;lista()}
+async function envia(tipo,input){const f=input.files[0];if(!f)return;const fd=new FormData();fd.append('arquivo',f);
+  try{const r=await j(`/api/obras/${obra}/${tipo}`,{method:'POST',body:fd});if(r.importados!==undefined)alert(r.importados+' linhas importadas');}catch(e){alert('Erro: '+e.message)}render()}
+async function gasto(){const b={etapa:$('#ge').value,descricao:$('#gd').value,fornecedor:$('#gf').value,data:$('#gt').value,valor:$('#gv').value};
+  try{await j(`/api/obras/${obra}/gastos`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})}catch(e){return alert(e.message)}render()}
+async function del(id){await j('/api/gastos/'+id,{method:'DELETE'});render()}
+async function render(){
+  const [rel,gs,docs]=await Promise.all([j(`/api/obras/${obra}/relatorio`),j(`/api/obras/${obra}/gastos`),j(`/api/obras/${obra}/documentos`)]);
+  $('#app').innerHTML=`
+  <div class="card"><div class="kpis">
+   <div class="kpi"><small>Orçado</small><b>${R(rel.previsto)}</b></div>
+   <div class="kpi"><small>Gasto até agora</small><b>${R(rel.gasto)}</b></div>
+   <div class="kpi"><small>Saldo</small><b class="${rel.saldo<0?'over':''}">${R(rel.saldo)}</b></div>
+   <div class="kpi"><small>% gasto</small><b>${rel.pct==null?'–':rel.pct.toFixed(1)+'%'}</b></div></div></div>
+  <div class="card"><h2>Previsto × gasto por etapa</h2><div class="scroll"><table><tr><th>Etapa<th>Previsto<th>Gasto<th>Saldo<th style="width:110px">%</tr>
+   ${rel.etapas.map(e=>`<tr><td>${esc(e.etapa)}<td>${R(e.previsto)}<td>${R(e.gasto)}<td class="${e.saldo<0?'over':''}">${R(e.saldo)}<td>${e.pct==null?'–':`<div class="bar"><i style="width:${Math.min(e.pct,100)}%;${e.pct>100?'background:var(--bad)':''}"></i></div>${e.pct.toFixed(0)}%`}</tr>`).join('')||'<tr><td colspan=5 class="hint">Importe o orçamento e os gastos abaixo.</tr>'}</table></div></div>
+  <div class="card"><h2>Importar planilhas</h2><div class="row">
+   <label>Orçamento (xlsx/csv)<br><input type="file" accept=".xlsx,.xls,.csv" onchange="envia('orcamento/importar',this)"></label>
+   <label>Gastos já realizados (xlsx/csv)<br><input type="file" accept=".xlsx,.xls,.csv" onchange="envia('gastos/importar',this)"></label></div>
+   <p class="hint">Orçamento: colunas Etapa, Item, Unidade, Qtd, Valor Unitário, Total. Gastos: Etapa, Descrição, Fornecedor, Data, Valor. O orçamento substitui o anterior; os gastos são somados.</p></div>
+  <div class="card"><h2>Lançar gasto</h2><div class="row"><input id="ge" placeholder="Etapa"><input id="gd" placeholder="Descrição"><input id="gf" placeholder="Fornecedor"><input id="gt" type="date"><input id="gv" type="number" step="0.01" placeholder="Valor"><button onclick="gasto()">Lançar</button></div>
+   <div class="scroll"><table><tr><th>Data<th>Etapa<th>Descrição<th>Valor<th></tr>${gs.slice(0,50).map(g=>`<tr><td>${esc(g.data)}<td>${esc(g.etapa)}<td>${esc(g.descricao)}<td>${R(g.valor)}<td><a href="#" onclick="del(${g.id});return false">✕</a></tr>`).join('')}</table></div></div>
+  <div class="card"><h2>Documentos</h2><input type="file" onchange="envia('documentos',this)">
+   <ul>${docs.map(d=>`<li><a href="/api/documentos/${d.id}/download">${esc(d.nome)}</a> <span class="hint">${esc(d.enviado_em)}</span></li>`).join('')}</ul></div>`}
+lista();
+</script></body></html>

@@ -50,7 +50,9 @@ function fmtDate(v) {
   return m ? `${m[3]}-${m[2]}-${m[1]}` : String(v || '');
 }
 const isoDate = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
-const hoje = req => (isoDate(req.query.hoje) ? req.query.hoje : new Date().toISOString().slice(0, 10));
+// "hoje" no fuso da obra (padrão Brasília), não em UTC: depois das 21h o dia UTC já é o seguinte
+const hojeLocal = () => new Date().toLocaleDateString('sv-SE', { timeZone: process.env.TZ_OBRA || 'America/Sao_Paulo' });
+const hoje = req => (isoDate(req.query.hoje) ? req.query.hoje : hojeLocal());
 const addDias = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const diasEntre = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000);
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -367,7 +369,7 @@ app.get('/api/obras/:id/avanco', wrap(async (req, res) => {
   const cron = new Map((await q('SELECT * FROM cronograma WHERE obra_id=?', [id])).map(r => [r.etapa, r]));
   const med = new Map();
   for (const m of await q('SELECT * FROM medicoes WHERE obra_id=? ORDER BY data, id', [id])) med.set(m.etapa, m);
-  const nomes = [...new Set([...prev.keys(), ...cron.keys(), ...med.keys()])].sort();
+  const nomes = [...new Set([...prev.keys(), ...gasto.keys(), ...cron.keys(), ...med.keys()])].sort();
   const etapas = nomes.map(etapa => {
     const c = cron.get(etapa) || {}, m = med.get(etapa);
     const previsto = prev.get(etapa) || 0, g = gasto.get(etapa) || 0, pct_fisico = m ? m.pct : 0;

@@ -23,6 +23,7 @@ As tabelas são criadas sozinhas na primeira execução. No primeiro acesso a te
 | `PORT` | porta (padrão 3100) |
 | `DATA_DIR` | pasta dos documentos enviados (padrão `./data`). Em hospedagem, aponte para um disco persistente |
 | `COOKIE_SECURE=1` | marca o cookie de sessão como Secure (use sempre com HTTPS) |
+| `TZ_OBRA` | fuso usado para "hoje" (padrão `America/Sao_Paulo`) |
 | `TRUST_PROXY=1` | use atrás de proxy/balanceador (Render, Fly, Nginx) para o HTTPS e o IP serem reconhecidos |
 
 ## Testes
@@ -31,6 +32,10 @@ As tabelas são criadas sozinhas na primeira execução. No primeiro acesso a te
 export TEST_DATABASE_URL=postgres://usuario:senha@localhost:5432/obras_test   # APAGA o schema public desse banco
 npm test
 ```
+
+## Interface
+
+Tela em `public/` (HTML, CSS e JS puros, sem build). Fontes Big Shoulders Display e IBM Plex estão em `public/fonts/` (licença OFL), então nada é carregado de serviços externos.
 
 ## Pendências conhecidas
 

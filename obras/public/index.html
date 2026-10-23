@@ -14,7 +14,7 @@ button{background:var(--ac);color:#fff;border:0;cursor:pointer}button.sec{backgr
 table{width:100%;border-collapse:collapse}th,td{padding:7px 6px;border-bottom:1px solid var(--bd);text-align:right}th:first-child,td:first-child{text-align:left}
 th{font-size:12px;color:var(--mut)}.bar{height:6px;background:var(--bd);border-radius:3px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok)}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.kpi small{color:var(--mut)}.kpi b{display:block;font-size:20px}
-.over{color:var(--bad)}.hint{color:var(--mut);font-size:13px}.scroll{overflow-x:auto}
+.over{color:var(--bad)}.ok{color:var(--ok)}.tag{font-size:12px;padding:2px 7px;border-radius:10px;border:1px solid var(--bd)}.tag.over{border-color:var(--bad)}.tag.ok{border-color:var(--ok)}.hint{color:var(--mut);font-size:13px}.scroll{overflow-x:auto}
 </style></head><body>
 <header><b>🏗️ Gestão de Obras</b><select id="sel" style="flex:0 1 240px"></select>
 <input id="novo" placeholder="Nova obra" style="flex:0 1 200px"><button onclick="criar()">Criar</button></header>
@@ -32,10 +32,29 @@ async function envia(tipo,input){const f=input.files[0];if(!f)return;const fd=ne
   try{const r=await j(`/api/obras/${obra}/${tipo}`,{method:'POST',body:fd});if(r.importados!==undefined)alert(r.importados+' linhas importadas');}catch(e){alert('Erro: '+e.message)}render()}
 async function gasto(){const b={etapa:$('#ge').value,descricao:$('#gd').value,fornecedor:$('#gf').value,data:$('#gt').value,valor:$('#gv').value};
   try{await j(`/api/obras/${obra}/gastos`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})}catch(e){return alert(e.message)}render()}
+async function conta(){const b={fornecedor:$('#cf').value,etapa:$('#ce').value,descricao:$('#cd').value,vencimento:$('#cv').value,valor:$('#cm').value,parcelas:$('#cp').value||1};
+  try{await j(`/api/obras/${obra}/contas`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})}catch(e){return alert(e.message)}render()}
+async function pagar(id){const v=prompt('Valor pago (deixe vazio para o valor da conta):','');if(v===null)return;
+  const body={};if(v.trim())body.valor=parseFloat(v.replace(/\./g,'').replace(',','.'));
+  try{await j(`/api/contas/${id}/pagar`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}catch(e){return alert(e.message)}render()}
+async function estornar(id){if(confirm('Estornar este pagamento?')){await j(`/api/contas/${id}/estornar`,{method:'POST'});render()}}
+async function delConta(id){if(confirm('Excluir esta conta?')){await j('/api/contas/'+id,{method:'DELETE'});render()}}
+const D=s=>s?s.split('-').reverse().join('/'):'';
+const ST={atrasado:['Atrasada','over'],vence_hoje:['Vence hoje',''],a_pagar:['A pagar',''],pago:['Paga','ok']};
 async function del(id){await j('/api/gastos/'+id,{method:'DELETE'});render()}
 async function render(){
-  const [rel,gs,docs]=await Promise.all([j(`/api/obras/${obra}/relatorio`),j(`/api/obras/${obra}/gastos`),j(`/api/obras/${obra}/documentos`)]);
+  const [rel,gs,docs,cs,pn]=await Promise.all([j(`/api/obras/${obra}/relatorio`),j(`/api/obras/${obra}/gastos`),j(`/api/obras/${obra}/documentos`),j(`/api/obras/${obra}/contas`),j('/api/painel')]);
+  const lin=(c,t)=>`<tr><td>${D(c.vencimento)}<td>${esc(c.obra)}<td>${esc(c.fornecedor||'–')}<td>${esc(c.descricao)}<td>${R(c.valor)}</tr>`;
+  const bloco=(t,x,cl)=>`<div class="kpi"><small>${t}</small><b class="${cl}">${R(x.total)}</b><small>${x.contas.length} conta(s)</small></div>`;
+  const maxS=Math.max(1,...pn.fluxo_semanal.map(w=>w.total));
   $('#app').innerHTML=`
+  <div class="card"><h2>Painel do dia · ${D(pn.hoje)}</h2><div class="kpis">
+   ${bloco('Atrasadas',pn.atrasadas,pn.atrasadas.contas.length?'over':'')}${bloco('Vencem hoje',pn.vence_hoje,'')}${bloco('Próximos 7 dias',pn.proximos_7_dias,'')}
+   <div class="kpi"><small>Total a pagar</small><b>${R(pn.total_a_pagar)}</b><small>todas as obras</small></div></div>
+   ${pn.atrasadas.contas.concat(pn.vence_hoje.contas).length?`<div class="scroll"><table><tr><th>Venc.<th>Obra<th>Fornecedor<th>Descrição<th>Valor</tr>${pn.atrasadas.contas.concat(pn.vence_hoje.contas).map(lin).join('')}</table></div>`:'<p class="hint">Nada atrasado nem vencendo hoje.</p>'}
+   ${pn.etapas_estouradas.length?`<p class="over"><b>Etapas acima do orçado:</b> ${pn.etapas_estouradas.map(e=>`${esc(e.obra)} / ${esc(e.etapa)} (+${R(e.excesso)})`).join(' · ')}</p>`:''}
+   <h2 style="margin-top:12px">Fluxo das próximas 8 semanas</h2>
+   <div class="scroll"><table>${pn.fluxo_semanal.map(w=>`<tr><td>${D(w.inicio)} a ${D(w.fim)}<td style="width:55%"><div class="bar"><i style="width:${w.total/maxS*100}%"></i></div><td>${R(w.total)}</tr>`).join('')}</table></div></div>
   <div class="card"><div class="kpis">
    <div class="kpi"><small>Orçado</small><b>${R(rel.previsto)}</b></div>
    <div class="kpi"><small>Gasto até agora</small><b>${R(rel.gasto)}</b></div>
@@ -43,6 +62,9 @@ async function render(){
    <div class="kpi"><small>% gasto</small><b>${rel.pct==null?'–':rel.pct.toFixed(1)+'%'}</b></div></div></div>
   <div class="card"><h2>Previsto × gasto por etapa</h2><div class="scroll"><table><tr><th>Etapa<th>Previsto<th>Gasto<th>Saldo<th style="width:110px">%</tr>
    ${rel.etapas.map(e=>`<tr><td>${esc(e.etapa)}<td>${R(e.previsto)}<td>${R(e.gasto)}<td class="${e.saldo<0?'over':''}">${R(e.saldo)}<td>${e.pct==null?'–':`<div class="bar"><i style="width:${Math.min(e.pct,100)}%;${e.pct>100?'background:var(--bad)':''}"></i></div>${e.pct.toFixed(0)}%`}</tr>`).join('')||'<tr><td colspan=5 class="hint">Importe o orçamento e os gastos abaixo.</tr>'}</table></div></div>
+  <div class="card"><h2>Contas a pagar desta obra</h2><div class="row"><input id="cf" placeholder="Fornecedor"><input id="ce" placeholder="Etapa"><input id="cd" placeholder="Descrição"><input id="cv" type="date"><input id="cm" type="number" step="0.01" placeholder="Valor"><input id="cp" type="number" min="1" max="60" placeholder="Parcelas"><button onclick="conta()">Adicionar</button></div>
+   <div class="scroll"><table><tr><th>Venc.<th>Fornecedor<th>Etapa<th>Descrição<th>Valor<th>Status<th></tr>${cs.map(c=>`<tr><td>${D(c.vencimento)}<td>${esc(c.fornecedor||'–')}<td>${esc(c.etapa)}<td>${esc(c.descricao)}<td>${R(c.valor)}<td><span class="tag ${ST[c.status][1]}">${ST[c.status][0]}${c.pago_em?' '+D(c.pago_em):''}</span><td>${c.pago_em?`<a href="#" onclick="estornar(${c.id});return false">estornar</a>`:`<a href="#" onclick="pagar(${c.id});return false">pagar</a> · <a href="#" onclick="delConta(${c.id});return false">✕</a>`}</tr>`).join('')||'<tr><td colspan=7 class="hint">Nenhuma conta lançada.</tr>'}</table></div>
+   <p class="hint">Ao marcar como paga, o valor entra automaticamente nos gastos da etapa. Parcelas mensais são criadas de uma vez.</p></div>
   <div class="card"><h2>Importar planilhas</h2><div class="row">
    <label>Orçamento (xlsx/csv)<br><input type="file" accept=".xlsx,.xls,.csv" onchange="envia('orcamento/importar',this)"></label>
    <label>Gastos já realizados (xlsx/csv)<br><input type="file" accept=".xlsx,.xls,.csv" onchange="envia('gastos/importar',this)"></label></div>

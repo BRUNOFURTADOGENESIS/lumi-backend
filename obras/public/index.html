@@ -11,7 +11,7 @@ main{max-width:980px;margin:0 auto;padding:16px}
 h2{margin:0 0 10px;font-size:16px}input,select,button{font:inherit;padding:8px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--card);color:var(--tx)}
 button{background:var(--ac);color:#fff;border:0;cursor:pointer}button.sec{background:none;color:var(--ac);border:1px solid var(--ac)}
 .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}.row>*{flex:1;min-width:120px}
-table{width:100%;border-collapse:collapse}th,td{padding:7px 6px;border-bottom:1px solid var(--bd);text-align:left}th.r,td.r{text-align:right}td input{width:100%;min-width:70px;padding:5px 6px}td input[type=date]{min-width:118px;font-size:13px;padding:4px}td:last-child,td.over{white-space:nowrap}
+table{width:100%;border-collapse:collapse}th,td{padding:7px 6px;border-bottom:1px solid var(--bd);text-align:left}th.r,td.r{text-align:right}td input{width:100%;min-width:70px;padding:5px 6px}td input[type=date]{min-width:118px;font-size:13px;padding:4px}td:last-child{white-space:nowrap}.c td,.c th{padding:6px 4px;font-size:13px}.c td input[type=date]{min-width:0;width:112px}
 th{font-size:12px;color:var(--mut)}.bar{height:6px;background:var(--bd);border-radius:3px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok)}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.kpi small{color:var(--mut)}.kpi b{display:block;font-size:20px}
 .over{color:var(--bad)}.ok{color:var(--ok)}.tag{font-size:12px;padding:2px 7px;border-radius:10px;border:1px solid var(--bd)}.tag.over{border-color:var(--bad)}.tag.ok{border-color:var(--ok)}.hint{color:var(--mut);font-size:13px}.scroll{overflow-x:auto}
@@ -41,7 +41,7 @@ async function estornar(id){if(confirm('Estornar este pagamento?')){await j(`/ap
 async function delConta(id){if(confirm('Excluir esta conta?')){await j('/api/contas/'+id,{method:'DELETE'});render()}}
 const D=s=>s?s.split('-').reverse().join('/'):'';
 const ST={atrasado:['Atrasada','over'],vence_hoje:['Vence hoje',''],a_pagar:['A pagar',''],pago:['Paga','ok']};
-const NUMH=/^(Previsto|Gasto|Saldo|Valor|%|Total|Qtd|V\. unit\.|A pagar sugerido)$/;
+const NUMH=/^(Previsto|Gasto|Saldo|Valor|%|Total|Qtd|V\. unit\.|A pagar)$/;
 function alinhaNumeros(){document.querySelectorAll('th').forEach(h=>NUMH.test(h.textContent.trim())&&h.classList.add('r'));
   document.querySelectorAll('td').forEach(d=>{if(!d.querySelector('input')&&/^-?R\$\s?[\d.,]+$|^\d+%$/.test(d.textContent.trim()))d.classList.add('r')})}
 const post=(u,b,m='POST')=>j(u,{method:m,headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
@@ -75,12 +75,12 @@ async function render(){
    <div class="kpi"><small>% gasto</small><b>${rel.pct==null?'–':rel.pct.toFixed(1)+'%'}</b></div></div></div>
   <div class="card"><h2>Previsto × gasto por etapa</h2><div class="scroll"><table><tr><th>Etapa<th>Previsto<th>Gasto<th>Saldo<th style="width:110px">%</tr>
    ${rel.etapas.map(e=>`<tr><td>${esc(e.etapa)}<td>${R(e.previsto)}<td>${R(e.gasto)}<td class="${e.saldo<0?'over':''}">${R(e.saldo)}<td>${e.pct==null?'–':`<div class="bar"><i style="width:${Math.min(e.pct,100)}%;${e.pct>100?'background:var(--bad)':''}"></i></div>${e.pct.toFixed(0)}%`}</tr>`).join('')||'<tr><td colspan=5 class="hint">Importe o orçamento e os gastos abaixo.</tr>'}</table></div></div>
-  <div class="card"><h2>Avanço físico e cronograma · obra a ${av.pct_fisico_obra.toFixed(1)}% (físico)</h2><div class="scroll"><table>
-   <tr><th>Etapa<th>Início<th>Fim<th>% físico<th>% planejado<th>Situação<th>Valor<th>A pagar sugerido<th></tr>
+  <div class="card"><h2>Avanço físico e cronograma · obra a ${av.pct_fisico_obra.toFixed(1)}% (físico)</h2><div class="scroll"><table class="c">
+   <tr><th>Etapa<th>Início<th>Fim<th>% físico<th>% planejado<th>Situação<th>Valor<th>A pagar<th></tr>
    ${av.etapas.map(e=>`<tr><td>${esc(e.etapa)}<td><input type="date" id="i_${esc(e.etapa)}" value="${e.inicio||''}" onchange="prazo(${esc(JSON.stringify(e.etapa)).replace(/&quot;/g,"'")})"><td><input type="date" id="f_${esc(e.etapa)}" value="${e.fim||''}" onchange="prazo(${esc(JSON.stringify(e.etapa)).replace(/&quot;/g,"'")})">
    <td>${e.pct_fisico.toFixed(0)}%<td>${e.pct_planejado==null?'–':e.pct_planejado.toFixed(0)+'%'}<td><span class="tag ${AS[e.status][1]}">${AS[e.status][0]}</span>
-   <td>${R(e.valor_fisico)}<td class="${e.pago_alem_do_fisico?'over':''}">${e.pago_alem_do_fisico?'pago a mais '+R(e.pago_alem_do_fisico):R(e.a_pagar_sugerido)}<td><a href="#" onclick="medir(${esc(JSON.stringify(e.etapa)).replace(/&quot;/g,"'")});return false">medir</a></tr>`).join('')||'<tr><td colspan=9 class="hint">Importe o orçamento para ver as etapas.</tr>'}</table></div>
-   <p class="hint">% planejado: avanço linear entre início e fim. "Valor" é o orçado × % físico; "a pagar sugerido" é esse valor menos o que já foi pago. Etapa atrasada: prazo vencido, ou físico 10 pontos abaixo do planejado.</p></div>
+   <td>${R(e.valor_fisico)}<td class="${e.pago_alem_do_fisico?'over':''}">${e.pago_alem_do_fisico?'-'+R(e.pago_alem_do_fisico):R(e.a_pagar_sugerido)}<td><a href="#" onclick="medir(${esc(JSON.stringify(e.etapa)).replace(/&quot;/g,"'")});return false">medir</a></tr>`).join('')||'<tr><td colspan=9 class="hint">Importe o orçamento para ver as etapas.</tr>'}</table></div>
+   <p class="hint">% planejado: avanço linear entre início e fim. "Valor" é o orçado × % físico; "A pagar" é sugestão: esse valor menos o que já foi pago. Em vermelho com sinal de menos, já se pagou além do avanço físico. Etapa atrasada: prazo vencido, ou físico 10 pontos abaixo do planejado.</p></div>
   <div class="card"><h2>Orçamento (editável)</h2><div class="row"><input id="ne" placeholder="Etapa"><input id="ni" placeholder="Item"><input id="nu" placeholder="Un."><input id="nq" placeholder="Qtd"><input id="nv" placeholder="V. unit."><button onclick="itemNovo()">Adicionar</button></div>
    <div class="scroll"><table><tr><th>Etapa<th>Item<th>Un.<th>Qtd<th>V. unit.<th>Total<th></tr>
    ${orc.map(o=>`<tr><td><input id="oe${o.id}" value="${esc(o.etapa)}"><td><input id="oi${o.id}" value="${esc(o.item)}"><td><input id="ou${o.id}" value="${esc(o.unidade)}" style="min-width:50px"><td><input id="oq${o.id}" value="${o.qtd}"><td><input id="ov${o.id}" value="${o.valor_unit}"><td>${R(o.total)}<td style="white-space:nowrap"><a href="#" onclick="itemSalva(${o.id});return false">salvar</a> · <a href="#" onclick="itemDel(${o.id});return false">✕</a></tr>`).join('')||'<tr><td colspan=7 class="hint">Sem itens. Adicione ou importe uma planilha.</tr>'}</table></div></div>

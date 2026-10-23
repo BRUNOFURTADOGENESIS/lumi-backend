@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS orcamento (id INTEGER PRIMARY KEY, obra_id INTEGER NO
 CREATE TABLE IF NOT EXISTS gastos (id INTEGER PRIMARY KEY, obra_id INTEGER NOT NULL, etapa TEXT, descricao TEXT, fornecedor TEXT, data TEXT, valor REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS fornecedores (id INTEGER PRIMARY KEY, nome TEXT NOT NULL UNIQUE, documento TEXT, contato TEXT);
 CREATE TABLE IF NOT EXISTS contas (id INTEGER PRIMARY KEY, obra_id INTEGER NOT NULL, fornecedor_id INTEGER, etapa TEXT, descricao TEXT, vencimento TEXT NOT NULL, valor REAL NOT NULL, pago_em TEXT, valor_pago REAL);
+CREATE TABLE IF NOT EXISTS medicoes (id INTEGER PRIMARY KEY, obra_id INTEGER NOT NULL, etapa TEXT NOT NULL, pct REAL NOT NULL, data TEXT NOT NULL, obs TEXT);
+CREATE TABLE IF NOT EXISTS cronograma (obra_id INTEGER NOT NULL, etapa TEXT NOT NULL, inicio TEXT, fim TEXT, PRIMARY KEY (obra_id, etapa));
 CREATE TABLE IF NOT EXISTS documentos (id INTEGER PRIMARY KEY, obra_id INTEGER NOT NULL, nome TEXT, arquivo TEXT, enviado_em TEXT DEFAULT CURRENT_TIMESTAMP);
 `);
 
@@ -269,6 +271,77 @@ app.get('/api/painel', (req, res) => {
     fluxo_semanal: semanas,
     etapas_estouradas: estouradas,
   });
+});
+
+// ---------- Orçamento editável ----------
+app.get('/api/obras/:id/orcamento', (req, res) =>
+  res.json(db.prepare('SELECT * FROM orcamento WHERE obra_id=? ORDER BY etapa, id').all(Number(req.params.id))));
+function itemOrc(b) {
+  const qtd = num(b.qtd), vu = num(b.valor_unit);
+  return [String(b.etapa || '').trim() || 'Sem etapa', String(b.item || ''), String(b.unidade || ''), qtd, vu, Math.round(qtd * vu * 100) / 100];
+}
+app.post('/api/obras/:id/orcamento', (req, res) => {
+  if (!String(req.body.item || '').trim()) return res.status(400).json({ erro: 'item obrigatório' });
+  const r = db.prepare('INSERT INTO orcamento (obra_id,etapa,item,unidade,qtd,valor_unit,total) VALUES (?,?,?,?,?,?,?)').run(Number(req.params.id), ...itemOrc(req.body));
+  res.status(201).json({ id: Number(r.lastInsertRowid) });
+});
+app.put('/api/orcamento/:id', (req, res) => {
+  const r = db.prepare('UPDATE orcamento SET etapa=?,item=?,unidade=?,qtd=?,valor_unit=?,total=? WHERE id=?').run(...itemOrc(req.body), Number(req.params.id));
+  res.sendStatus(r.changes ? 200 : 404);
+});
+app.delete('/api/orcamento/:id', (req, res) => { db.prepare('DELETE FROM orcamento WHERE id=?').run(Number(req.params.id)); res.json({ ok: true }); });
+
+// ---------- Medição física e cronograma ----------
+app.post('/api/obras/:id/medicoes', (req, res) => {
+  const pct = Number(req.body.pct), etapa = String(req.body.etapa || '').trim();
+  if (!etapa) return res.status(400).json({ erro: 'etapa obrigatória' });
+  if (!(pct >= 0 && pct <= 100)) return res.status(400).json({ erro: 'percentual deve estar entre 0 e 100' });
+  const data = isoDate(req.body.data) ? req.body.data : hoje(req);
+  db.prepare('INSERT INTO medicoes (obra_id,etapa,pct,data,obs) VALUES (?,?,?,?,?)').run(Number(req.params.id), etapa, pct, data, req.body.obs || '');
+  res.status(201).json({ ok: true });
+});
+app.get('/api/obras/:id/medicoes', (req, res) =>
+  res.json(db.prepare('SELECT * FROM medicoes WHERE obra_id=? ORDER BY data DESC, id DESC').all(Number(req.params.id))));
+
+app.put('/api/obras/:id/cronograma', (req, res) => {
+  const { etapa, inicio, fim } = req.body;
+  if (!String(etapa || '').trim()) return res.status(400).json({ erro: 'etapa obrigatória' });
+  if ((inicio && !isoDate(inicio)) || (fim && !isoDate(fim))) return res.status(400).json({ erro: 'data inválida (aaaa-mm-dd)' });
+  if (inicio && fim && fim < inicio) return res.status(400).json({ erro: 'fim anterior ao início' });
+  db.prepare('INSERT INTO cronograma (obra_id,etapa,inicio,fim) VALUES (?,?,?,?) ON CONFLICT(obra_id,etapa) DO UPDATE SET inicio=excluded.inicio, fim=excluded.fim')
+    .run(Number(req.params.id), String(etapa).trim(), inicio || null, fim || null);
+  res.json({ ok: true });
+});
+
+const diasEntre = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000);
+// Avanço por etapa: físico (última medição), planejado (linear entre início e fim), custo e sugestão de pagamento
+app.get('/api/obras/:id/avanco', (req, res) => {
+  const id = Number(req.params.id), h = hoje(req);
+  const prev = new Map(db.prepare('SELECT etapa, SUM(total) v FROM orcamento WHERE obra_id=? GROUP BY etapa').all(id).map(r => [r.etapa, r.v]));
+  const gasto = new Map(db.prepare('SELECT etapa, SUM(valor) v FROM gastos WHERE obra_id=? GROUP BY etapa').all(id).map(r => [r.etapa, r.v]));
+  const cron = new Map(db.prepare('SELECT * FROM cronograma WHERE obra_id=?').all(id).map(r => [r.etapa, r]));
+  const med = new Map();
+  for (const m of db.prepare('SELECT * FROM medicoes WHERE obra_id=? ORDER BY data, id').all(id)) med.set(m.etapa, m);
+  const nomes = [...new Set([...prev.keys(), ...cron.keys(), ...med.keys()])].sort();
+  const etapas = nomes.map(etapa => {
+    const c = cron.get(etapa) || {}, m = med.get(etapa);
+    const previsto = prev.get(etapa) || 0, g = gasto.get(etapa) || 0, pct_fisico = m ? m.pct : 0;
+    let pct_planejado = null;
+    if (c.inicio && c.fim) {
+      const tot = Math.max(diasEntre(c.inicio, c.fim), 1);
+      pct_planejado = Math.min(100, Math.max(0, (diasEntre(c.inicio, h) / tot) * 100));
+    }
+    let status = 'sem_prazo';
+    if (pct_fisico >= 100) status = 'concluida';
+    else if (c.fim && h > c.fim) status = 'atrasada';
+    else if (c.inicio && h < c.inicio) status = 'nao_iniciada';
+    else if (pct_planejado != null) status = pct_fisico + 10 < pct_planejado ? 'atrasada' : 'em_dia';
+    const valor_fisico = previsto * pct_fisico / 100;
+    return { etapa, inicio: c.inicio || null, fim: c.fim || null, previsto, gasto: g, pct_fisico, ultima_medicao: m ? m.data : null,
+      pct_planejado, status, valor_fisico, a_pagar_sugerido: Math.max(0, valor_fisico - g), pago_alem_do_fisico: Math.max(0, g - valor_fisico) };
+  });
+  const totPrev = etapas.reduce((a, e) => a + e.previsto, 0);
+  res.json({ hoje: h, pct_fisico_obra: totPrev ? etapas.reduce((a, e) => a + e.previsto * e.pct_fisico, 0) / totPrev : 0, etapas });
 });
 
 module.exports = app;

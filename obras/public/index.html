@@ -11,7 +11,7 @@ main{max-width:980px;margin:0 auto;padding:16px}
 h2{margin:0 0 10px;font-size:16px}input,select,button{font:inherit;padding:8px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--card);color:var(--tx)}
 button{background:var(--ac);color:#fff;border:0;cursor:pointer}button.sec{background:none;color:var(--ac);border:1px solid var(--ac)}
 .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}.row>*{flex:1;min-width:120px}
-table{width:100%;border-collapse:collapse}th,td{padding:7px 6px;border-bottom:1px solid var(--bd);text-align:right}th:first-child,td:first-child{text-align:left}
+table{width:100%;border-collapse:collapse}th,td{padding:7px 6px;border-bottom:1px solid var(--bd);text-align:left}th.r,td.r{text-align:right}td input{width:100%;min-width:70px;padding:5px 6px}td input[type=date]{min-width:118px;font-size:13px;padding:4px}td:last-child,td.over{white-space:nowrap}
 th{font-size:12px;color:var(--mut)}.bar{height:6px;background:var(--bd);border-radius:3px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok)}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.kpi small{color:var(--mut)}.kpi b{display:block;font-size:20px}
 .over{color:var(--bad)}.ok{color:var(--ok)}.tag{font-size:12px;padding:2px 7px;border-radius:10px;border:1px solid var(--bd)}.tag.over{border-color:var(--bad)}.tag.ok{border-color:var(--ok)}.hint{color:var(--mut);font-size:13px}.scroll{overflow-x:auto}
@@ -41,9 +41,22 @@ async function estornar(id){if(confirm('Estornar este pagamento?')){await j(`/ap
 async function delConta(id){if(confirm('Excluir esta conta?')){await j('/api/contas/'+id,{method:'DELETE'});render()}}
 const D=s=>s?s.split('-').reverse().join('/'):'';
 const ST={atrasado:['Atrasada','over'],vence_hoje:['Vence hoje',''],a_pagar:['A pagar',''],pago:['Paga','ok']};
+const NUMH=/^(Previsto|Gasto|Saldo|Valor|%|Total|Qtd|V\. unit\.|A pagar sugerido)$/;
+function alinhaNumeros(){document.querySelectorAll('th').forEach(h=>NUMH.test(h.textContent.trim())&&h.classList.add('r'));
+  document.querySelectorAll('td').forEach(d=>{if(!d.querySelector('input')&&/^-?R\$\s?[\d.,]+$|^\d+%$/.test(d.textContent.trim()))d.classList.add('r')})}
+const post=(u,b,m='POST')=>j(u,{method:m,headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+async function medir(etapa){const v=prompt(`Novo % de avanço físico de "${etapa}" (0 a 100):`,'');if(v===null||!v.trim())return;
+  try{await post(`/api/obras/${obra}/medicoes`,{etapa,pct:parseFloat(v.replace(',','.'))})}catch(e){return alert(e.message)}render()}
+async function prazo(etapa){const i=document.getElementById('i_'+CSS.escape(etapa)).value,f=document.getElementById('f_'+CSS.escape(etapa)).value;
+  try{await post(`/api/obras/${obra}/cronograma`,{etapa,inicio:i,fim:f},'PUT')}catch(e){alert(e.message)}render()}
+async function itemSalva(id){const g=k=>document.getElementById(k+id).value;
+  try{await post('/api/orcamento/'+id,{etapa:g('oe'),item:g('oi'),unidade:g('ou'),qtd:g('oq'),valor_unit:g('ov')},'PUT')}catch(e){alert(e.message)}render()}
+async function itemDel(id){if(confirm('Excluir este item do orçamento?')){await j('/api/orcamento/'+id,{method:'DELETE'});render()}}
+async function itemNovo(){try{await post(`/api/obras/${obra}/orcamento`,{etapa:$('#ne').value,item:$('#ni').value,unidade:$('#nu').value,qtd:$('#nq').value,valor_unit:$('#nv').value})}catch(e){return alert(e.message)}render()}
+const AS={concluida:['Concluída','ok'],atrasada:['Atrasada','over'],em_dia:['Em dia','ok'],nao_iniciada:['Não iniciada',''],sem_prazo:['Sem prazo','']};
 async function del(id){await j('/api/gastos/'+id,{method:'DELETE'});render()}
 async function render(){
-  const [rel,gs,docs,cs,pn]=await Promise.all([j(`/api/obras/${obra}/relatorio`),j(`/api/obras/${obra}/gastos`),j(`/api/obras/${obra}/documentos`),j(`/api/obras/${obra}/contas`),j('/api/painel')]);
+  const [rel,gs,docs,cs,pn,av,orc]=await Promise.all([j(`/api/obras/${obra}/relatorio`),j(`/api/obras/${obra}/gastos`),j(`/api/obras/${obra}/documentos`),j(`/api/obras/${obra}/contas`),j('/api/painel'),j(`/api/obras/${obra}/avanco`),j(`/api/obras/${obra}/orcamento`)]);
   const lin=(c,t)=>`<tr><td>${D(c.vencimento)}<td>${esc(c.obra)}<td>${esc(c.fornecedor||'–')}<td>${esc(c.descricao)}<td>${R(c.valor)}</tr>`;
   const bloco=(t,x,cl)=>`<div class="kpi"><small>${t}</small><b class="${cl}">${R(x.total)}</b><small>${x.contas.length} conta(s)</small></div>`;
   const maxS=Math.max(1,...pn.fluxo_semanal.map(w=>w.total));
@@ -62,6 +75,15 @@ async function render(){
    <div class="kpi"><small>% gasto</small><b>${rel.pct==null?'–':rel.pct.toFixed(1)+'%'}</b></div></div></div>
   <div class="card"><h2>Previsto × gasto por etapa</h2><div class="scroll"><table><tr><th>Etapa<th>Previsto<th>Gasto<th>Saldo<th style="width:110px">%</tr>
    ${rel.etapas.map(e=>`<tr><td>${esc(e.etapa)}<td>${R(e.previsto)}<td>${R(e.gasto)}<td class="${e.saldo<0?'over':''}">${R(e.saldo)}<td>${e.pct==null?'–':`<div class="bar"><i style="width:${Math.min(e.pct,100)}%;${e.pct>100?'background:var(--bad)':''}"></i></div>${e.pct.toFixed(0)}%`}</tr>`).join('')||'<tr><td colspan=5 class="hint">Importe o orçamento e os gastos abaixo.</tr>'}</table></div></div>
+  <div class="card"><h2>Avanço físico e cronograma · obra a ${av.pct_fisico_obra.toFixed(1)}% (físico)</h2><div class="scroll"><table>
+   <tr><th>Etapa<th>Início<th>Fim<th>% físico<th>% planejado<th>Situação<th>Valor<th>A pagar sugerido<th></tr>
+   ${av.etapas.map(e=>`<tr><td>${esc(e.etapa)}<td><input type="date" id="i_${esc(e.etapa)}" value="${e.inicio||''}" onchange="prazo(${esc(JSON.stringify(e.etapa)).replace(/&quot;/g,"'")})"><td><input type="date" id="f_${esc(e.etapa)}" value="${e.fim||''}" onchange="prazo(${esc(JSON.stringify(e.etapa)).replace(/&quot;/g,"'")})">
+   <td>${e.pct_fisico.toFixed(0)}%<td>${e.pct_planejado==null?'–':e.pct_planejado.toFixed(0)+'%'}<td><span class="tag ${AS[e.status][1]}">${AS[e.status][0]}</span>
+   <td>${R(e.valor_fisico)}<td class="${e.pago_alem_do_fisico?'over':''}">${e.pago_alem_do_fisico?'pago a mais '+R(e.pago_alem_do_fisico):R(e.a_pagar_sugerido)}<td><a href="#" onclick="medir(${esc(JSON.stringify(e.etapa)).replace(/&quot;/g,"'")});return false">medir</a></tr>`).join('')||'<tr><td colspan=9 class="hint">Importe o orçamento para ver as etapas.</tr>'}</table></div>
+   <p class="hint">% planejado: avanço linear entre início e fim. "Valor" é o orçado × % físico; "a pagar sugerido" é esse valor menos o que já foi pago. Etapa atrasada: prazo vencido, ou físico 10 pontos abaixo do planejado.</p></div>
+  <div class="card"><h2>Orçamento (editável)</h2><div class="row"><input id="ne" placeholder="Etapa"><input id="ni" placeholder="Item"><input id="nu" placeholder="Un."><input id="nq" placeholder="Qtd"><input id="nv" placeholder="V. unit."><button onclick="itemNovo()">Adicionar</button></div>
+   <div class="scroll"><table><tr><th>Etapa<th>Item<th>Un.<th>Qtd<th>V. unit.<th>Total<th></tr>
+   ${orc.map(o=>`<tr><td><input id="oe${o.id}" value="${esc(o.etapa)}"><td><input id="oi${o.id}" value="${esc(o.item)}"><td><input id="ou${o.id}" value="${esc(o.unidade)}" style="min-width:50px"><td><input id="oq${o.id}" value="${o.qtd}"><td><input id="ov${o.id}" value="${o.valor_unit}"><td>${R(o.total)}<td style="white-space:nowrap"><a href="#" onclick="itemSalva(${o.id});return false">salvar</a> · <a href="#" onclick="itemDel(${o.id});return false">✕</a></tr>`).join('')||'<tr><td colspan=7 class="hint">Sem itens. Adicione ou importe uma planilha.</tr>'}</table></div></div>
   <div class="card"><h2>Contas a pagar desta obra</h2><div class="row"><input id="cf" placeholder="Fornecedor"><input id="ce" placeholder="Etapa"><input id="cd" placeholder="Descrição"><input id="cv" type="date"><input id="cm" type="number" step="0.01" placeholder="Valor"><input id="cp" type="number" min="1" max="60" placeholder="Parcelas"><button onclick="conta()">Adicionar</button></div>
    <div class="scroll"><table><tr><th>Venc.<th>Fornecedor<th>Etapa<th>Descrição<th>Valor<th>Status<th></tr>${cs.map(c=>`<tr><td>${D(c.vencimento)}<td>${esc(c.fornecedor||'–')}<td>${esc(c.etapa)}<td>${esc(c.descricao)}<td>${R(c.valor)}<td><span class="tag ${ST[c.status][1]}">${ST[c.status][0]}${c.pago_em?' '+D(c.pago_em):''}</span><td>${c.pago_em?`<a href="#" onclick="estornar(${c.id});return false">estornar</a>`:`<a href="#" onclick="pagar(${c.id});return false">pagar</a> · <a href="#" onclick="delConta(${c.id});return false">✕</a>`}</tr>`).join('')||'<tr><td colspan=7 class="hint">Nenhuma conta lançada.</tr>'}</table></div>
    <p class="hint">Ao marcar como paga, o valor entra automaticamente nos gastos da etapa. Parcelas mensais são criadas de uma vez.</p></div>
@@ -72,6 +94,6 @@ async function render(){
   <div class="card"><h2>Lançar gasto</h2><div class="row"><input id="ge" placeholder="Etapa"><input id="gd" placeholder="Descrição"><input id="gf" placeholder="Fornecedor"><input id="gt" type="date"><input id="gv" type="number" step="0.01" placeholder="Valor"><button onclick="gasto()">Lançar</button></div>
    <div class="scroll"><table><tr><th>Data<th>Etapa<th>Descrição<th>Valor<th></tr>${gs.slice(0,50).map(g=>`<tr><td>${esc(g.data)}<td>${esc(g.etapa)}<td>${esc(g.descricao)}<td>${R(g.valor)}<td><a href="#" onclick="del(${g.id});return false">✕</a></tr>`).join('')}</table></div></div>
   <div class="card"><h2>Documentos</h2><input type="file" onchange="envia('documentos',this)">
-   <ul>${docs.map(d=>`<li><a href="/api/documentos/${d.id}/download">${esc(d.nome)}</a> <span class="hint">${esc(d.enviado_em)}</span></li>`).join('')}</ul></div>`}
+   <ul>${docs.map(d=>`<li><a href="/api/documentos/${d.id}/download">${esc(d.nome)}</a> <span class="hint">${esc(d.enviado_em)}</span></li>`).join('')}</ul></div>`;alinhaNumeros()}
 lista();
 </script></body></html>

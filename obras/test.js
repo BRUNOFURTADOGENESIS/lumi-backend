@@ -69,6 +69,31 @@ const form = (name, buf, fn) => { const f = new FormData(); f.append(name, new B
   assert.equal(painel.fluxo_semanal.length, 8);
   assert.ok(painel.etapas_estouradas.some(e => e.etapa === 'Fundação') === false); // 3500,5 de 5000
   console.log('financeiro OK');
+
+  // ---- orçamento editável, medição e cronograma ----
+  const itens = await j(`/obras/${id}/orcamento`);
+  const novoItem = await post(`/obras/${id}/orcamento`, { etapa: 'Cobertura', item: 'Telhado', unidade: 'm2', qtd: 100, valor_unit: '85,50' });
+  assert.equal((await j(`/obras/${id}/orcamento`)).find(i => i.id === novoItem.id).total, 8550);
+  await fetch(`${base}/orcamento/${novoItem.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ etapa: 'Cobertura', item: 'Telhado', unidade: 'm2', qtd: 120, valor_unit: 100 }) });
+  assert.equal((await j(`/obras/${id}/relatorio`)).previsto, 7000 + 12000);
+  await fetch(`${base}/orcamento/${novoItem.id}`, { method: 'DELETE' });
+  assert.equal((await j(`/obras/${id}/relatorio`)).previsto, 7000);
+
+  await fetch(`${base}/obras/${id}/cronograma`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ etapa: 'Fundação', inicio: '2026-09-01', fim: '2026-10-01' }) });
+  await fetch(`${base}/obras/${id}/cronograma`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ etapa: 'Alvenaria', inicio: '2026-10-01', fim: '2026-10-21' }) });
+  assert.equal((await fetch(`${base}/obras/${id}/cronograma`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ etapa: 'X', inicio: '2026-10-05', fim: '2026-10-01' }) })).status, 400);
+  assert.equal((await fetch(`${base}/obras/${id}/medicoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ etapa: 'Fundação', pct: 120 }) })).status, 400);
+  await post(`/obras/${id}/medicoes`, { etapa: 'Fundação', pct: 50, data: '2026-09-20' });
+  await post(`/obras/${id}/medicoes`, { etapa: 'Fundação', pct: 80, data: '2026-09-30' });
+  await post(`/obras/${id}/medicoes`, { etapa: 'Alvenaria', pct: 10, data: '2026-10-10' });
+  const av = await j(`/obras/${id}/avanco?hoje=2026-10-10`);
+  const fu = av.etapas.find(e => e.etapa === 'Fundação'), al = av.etapas.find(e => e.etapa === 'Alvenaria');
+  assert.equal(fu.pct_fisico, 80); assert.equal(fu.status, 'atrasada'); // prazo venceu em 01/10 e não chegou a 100%
+  assert.equal(fu.valor_fisico, 4000); assert.equal(fu.a_pagar_sugerido, 499.5); // 4000 - 3500,50
+  assert.equal(al.status, 'atrasada'); // planejado 45%, físico 10%
+  assert.equal(Math.round(al.pct_planejado), 45);
+  assert.ok(Math.abs(av.pct_fisico_obra - (5000 * 80 + 2000 * 10) / 7000) < 1e-9);
+  console.log('avanço OK');
   console.log('OK', JSON.stringify(rel));
   srv.close();
 })().catch(e => { console.error(e); process.exit(1); });

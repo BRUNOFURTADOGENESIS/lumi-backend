@@ -26,6 +26,7 @@ Na tela de importação, a Vercel só lista a pasta `obras` (Root Directory) se 
 |---|---|
 | A pasta `obras` não aparece em *Root Directory* | O pull request ainda não foi mesclado na `main` |
 | Tela de erro "Banco de dados indisponível" ou `/healthz` com erro | A variável `DATABASE_URL` não existe neste ambiente. Em *Storage*, conecte o Neon ao projeto marcando Production, Preview e Development, e faça *Redeploy* |
+| Página inicial dá 404 ("This page doesn't exist") | O sistema serve as próprias páginas pela função `api/index.js`, então atualize para a versão mais recente da `main` e faça *Redeploy*. Confira também se *Output Directory* é `public` (sem ponto no final) |
 | A página abre mas fica em branco | *Output Directory* deve ser `public` |
 | "Código de instalação incorreto" | Digite exatamente o valor da variável `SETUP_TOKEN` (sem espaços) |
 | Login volta para a tela de entrada | Abra sempre pelo endereço `https://...vercel.app` (o cookie exige HTTPS) |

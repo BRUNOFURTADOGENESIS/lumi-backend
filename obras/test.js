@@ -1,8 +1,9 @@
 const assert = require('assert');
 const os = require('os'), fs = require('fs'), path = require('path');
 const XLSX = require('xlsx');
+const { Client } = require('pg');
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'obras-'));
-const app = require('./server');
+process.env.DATABASE_URL = process.env.TEST_DATABASE_URL || 'postgres://obras:obras@localhost:5432/obras_test';
 
 const xlsx = rows => {
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'a');
@@ -11,7 +12,42 @@ const xlsx = rows => {
 const form = (name, buf, fn) => { const f = new FormData(); f.append(name, new Blob([buf]), fn); return f; };
 
 (async () => {
+  const c = new Client({ connectionString: process.env.DATABASE_URL }); await c.connect();
+  await c.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;'); await c.end();
+  const app = require('./server'); await app.pronto;
   const srv = app.listen(0); const base = `http://localhost:${srv.address().port}/api`;
+  const realFetch = global.fetch; let cookie = '';
+  global.fetch = (u, o = {}) => realFetch(u, { ...o, headers: { ...(o.headers || {}), Cookie: cookie } });
+  const semLogin = (u, o) => realFetch(base + u, o);
+  const J = { 'Content-Type': 'application/json' };
+
+  // ---- autenticação ----
+  assert.equal((await semLogin('/obras')).status, 401);
+  assert.equal((await semLogin('/auth/status').then(r => r.json())).precisa_setup, true);
+  assert.equal((await semLogin('/auth/setup', { method: 'POST', headers: J, body: JSON.stringify({ nome: 'Eng', email: 'eng@x.com', senha: 'curta' }) })).status, 400);
+  const setup = await semLogin('/auth/setup', { method: 'POST', headers: J, body: JSON.stringify({ nome: 'Eng', email: 'Eng@X.com', senha: 'senha-forte-1' }) });
+  assert.equal(setup.status, 201);
+  const sc = setup.headers.get('set-cookie'); assert.ok(/HttpOnly/.test(sc) && /SameSite=Strict/.test(sc));
+  cookie = sc.split(';')[0];
+  assert.equal((await semLogin('/auth/setup', { method: 'POST', headers: J, body: JSON.stringify({ nome: 'Outro', email: 'o@x.com', senha: 'senha-forte-2' }) })).status, 409);
+  assert.equal((await semLogin('/auth/login', { method: 'POST', headers: J, body: JSON.stringify({ email: 'eng@x.com', senha: 'errada' }) })).status, 401);
+  const lg = await semLogin('/auth/login', { method: 'POST', headers: J, body: JSON.stringify({ email: 'eng@x.com', senha: 'senha-forte-1' }) });
+  assert.equal(lg.status, 200); assert.equal((await lg.json()).papel, 'admin');
+  assert.equal((await fetch(base + '/obras')).status, 200);
+  // perfil somente leitura: consulta, mas não grava; só admin gerencia usuários
+  assert.equal((await fetch(base + '/usuarios', { method: 'POST', headers: J, body: JSON.stringify({ nome: 'Leitor', email: 'l@x.com', senha: 'leitura-123', papel: 'leitura' }) })).status, 201);
+  assert.equal((await fetch(base + '/usuarios', { method: 'POST', headers: J, body: JSON.stringify({ nome: 'Dup', email: 'L@x.com', senha: 'leitura-123', papel: 'leitura' }) })).status, 409);
+  const adminCookie = cookie;
+  const rl = await semLogin('/auth/login', { method: 'POST', headers: J, body: JSON.stringify({ email: 'l@x.com', senha: 'leitura-123' }) });
+  cookie = rl.headers.get('set-cookie').split(';')[0];
+  assert.equal((await fetch(base + '/obras')).status, 200);
+  assert.equal((await fetch(base + '/obras', { method: 'POST', headers: J, body: JSON.stringify({ nome: 'X' }) })).status, 403);
+  assert.equal((await fetch(base + '/usuarios')).status, 403);
+  await semLogin('/auth/logout', { method: 'POST', headers: { Cookie: cookie } });
+  assert.equal((await fetch(base + '/obras')).status, 401); // sessão encerrada
+  cookie = adminCookie;
+  assert.equal((await fetch(base + '/obras/99999/gastos', { method: 'POST', headers: J, body: JSON.stringify({ valor: 5 }) })).status, 404);
+
   const post = (u, b) => fetch(base + u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then(r => r.json());
   const { id } = await post('/obras', { nome: 'Casa Teste' });
 
@@ -58,7 +94,8 @@ const form = (name, buf, fn) => { const f = new FormData(); f.append(name, new B
   // pagar gera gasto e entra no relatório; estornar desfaz
   const atrasada = (await j(`/obras/${id}/contas` + H)).find(c => c.status === 'atrasado');
   await post(`/contas/${atrasada.id}/pagar` + H, { valor: 1000 });
-  assert.equal((await post(`/contas/${atrasada.id}/pagar` + H, {}).catch(() => ({}))).erro, 'conta já paga');
+  assert.equal((await fetch(`${base}/contas/${atrasada.id}/pagar` + H, { method: 'POST', headers: J, body: '{}' })).status, 409);
+  assert.equal((await fetch(`${base}/contas/999999/pagar`, { method: 'POST', headers: J, body: '{}' })).status, 404);
   let rel2 = await j(`/obras/${id}/relatorio`);
   assert.equal(rel2.gasto, 4800.5 + 1000);
   await post(`/contas/${atrasada.id}/estornar`, {});
@@ -68,6 +105,12 @@ const form = (name, buf, fn) => { const f = new FormData(); f.append(name, new B
   assert.equal(painel.atrasadas.total, 1000);
   assert.equal(painel.fluxo_semanal.length, 8);
   assert.ok(painel.etapas_estouradas.some(e => e.etapa === 'Fundação') === false); // 3500,5 de 5000
+  // dois cliques simultâneos em "pagar": só um pagamento pode valer
+  const outra = (await j(`/obras/${id}/contas` + H)).find(c => c.status === 'vence_hoje');
+  const rs = await Promise.all([1, 2, 3].map(() => fetch(`${base}/contas/${outra.id}/pagar` + H, { method: 'POST', headers: J, body: '{}' }).then(r => r.status)));
+  assert.deepEqual(rs.sort(), [200, 409, 409]);
+  assert.equal((await j(`/obras/${id}/gastos`)).filter(g => g.conta_id === outra.id).length, 1);
+  await post(`/contas/${outra.id}/estornar`, {});
   console.log('financeiro OK');
 
   // ---- orçamento editável, medição e cronograma ----

@@ -16,14 +16,33 @@ th{font-size:12px;color:var(--mut)}.bar{height:6px;background:var(--bd);border-r
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.kpi small{color:var(--mut)}.kpi b{display:block;font-size:20px}
 .over{color:var(--bad)}.ok{color:var(--ok)}.tag{font-size:12px;padding:2px 7px;border-radius:10px;border:1px solid var(--bd)}.tag.over{border-color:var(--bad)}.tag.ok{border-color:var(--ok)}.hint{color:var(--mut);font-size:13px}.scroll{overflow-x:auto}
 </style></head><body>
-<header><b>🏗️ Gestão de Obras</b><select id="sel" style="flex:0 1 240px"></select>
-<input id="novo" placeholder="Nova obra" style="flex:0 1 200px"><button onclick="criar()">Criar</button></header>
+<header id="topo"><b>🏗️ Gestão de Obras</b><select id="sel" style="flex:0 1 240px"></select>
+<input id="novo" placeholder="Nova obra" style="flex:0 1 200px"><button onclick="criar()">Criar</button><span style="margin-left:auto" class="hint" id="quem"></span><button class="sec" onclick="sair()">Sair</button></header>
+<div id="login" style="display:none;max-width:360px;margin:60px auto;padding:0 16px"><div class="card"><h2 id="lt">Entrar</h2><div class="row" style="flex-direction:column"><input id="ln" placeholder="Seu nome" style="display:none"><input id="le" type="email" placeholder="E-mail" autocomplete="username"><input id="ls" type="password" placeholder="Senha (mín. 8 caracteres)" autocomplete="current-password" onkeydown="if(event.key==='Enter')entrar()"><button onclick="entrar()" id="lb">Entrar</button></div><p class="hint" id="lm"></p></div></div>
 <main id="app"><p class="hint">Crie ou selecione uma obra.</p></main>
 <script>
 const $=s=>document.querySelector(s),R=v=>(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let obra=null;
-const j=async(u,o)=>{const r=await fetch(u,o);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.erro||r.status);return d};
+let eu=null,setup=false;
+const j=async(u,o)=>{const r=await fetch(u,o);const d=await r.json().catch(()=>({}));
+  if(r.status===401&&!u.startsWith('/api/auth/')){mostraLogin();throw new Error('faça login')}
+  if(!r.ok)throw new Error(d.erro||r.status);return d};
+window.addEventListener('unhandledrejection',e=>{if(e.reason&&e.reason.message!=='faça login')alert(e.reason.message)});
+function mostraLogin(){eu=null;$('#login').style.display='block';$('#app').style.display='none';$('#topo').style.display='none';
+  $('#lt').textContent=setup?'Criar administrador':'Entrar';$('#ln').style.display=setup?'':'none';$('#lb').textContent=setup?'Criar e entrar':'Entrar';
+  $('#lm').textContent=setup?'Primeiro acesso: crie o usuário administrador.':''}
+async function entrar(){const b={email:$('#le').value,senha:$('#ls').value};if(setup)b.nome=$('#ln').value;
+  try{eu=await j('/api/auth/'+(setup?'setup':'login'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})}catch(e){$('#lm').textContent=e.message;return}
+  $('#ls').value='';abre()}
+async function sair(){await fetch('/api/auth/logout',{method:'POST'});location.reload()}
+function abre(){$('#login').style.display='none';$('#app').style.display='';$('#topo').style.display='';
+  $('#quem').textContent=`${eu.nome} · ${eu.papel}`;obra=null;lista()}
+async function iniciar(){const st=await fetch('/api/auth/status').then(r=>r.json());setup=st.precisa_setup;
+  if(st.usuario){eu=st.usuario;abre()}else mostraLogin()}
+async function novoUsuario(){const b={nome:$('#un').value,email:$('#ue').value,senha:$('#us').value,papel:$('#up').value};
+  await post('/api/usuarios',b);render()}
+async function delUsuario(id){if(confirm('Excluir este usuário?')){await j('/api/usuarios/'+id,{method:'DELETE'});render()}}
 async function lista(){const os=await j('/api/obras');$('#sel').innerHTML=os.map(o=>`<option value="${o.id}">${esc(o.nome)}</option>`).join('');
   if(os.length){obra=obra&&os.find(o=>o.id==obra)?obra:os[0].id;$('#sel').value=obra;render()}}
 $('#sel').onchange=e=>{obra=e.target.value;render()};
@@ -56,6 +75,7 @@ async function itemNovo(){try{await post(`/api/obras/${obra}/orcamento`,{etapa:$
 const AS={concluida:['Concluída','ok'],atrasada:['Atrasada','over'],em_dia:['Em dia','ok'],nao_iniciada:['Não iniciada',''],sem_prazo:['Sem prazo','']};
 async function del(id){await j('/api/gastos/'+id,{method:'DELETE'});render()}
 async function render(){
+  const us=eu&&eu.papel==='admin'?await j('/api/usuarios'):null;
   const [rel,gs,docs,cs,pn,av,orc]=await Promise.all([j(`/api/obras/${obra}/relatorio`),j(`/api/obras/${obra}/gastos`),j(`/api/obras/${obra}/documentos`),j(`/api/obras/${obra}/contas`),j('/api/painel'),j(`/api/obras/${obra}/avanco`),j(`/api/obras/${obra}/orcamento`)]);
   const lin=(c,t)=>`<tr><td>${D(c.vencimento)}<td>${esc(c.obra)}<td>${esc(c.fornecedor||'–')}<td>${esc(c.descricao)}<td>${R(c.valor)}</tr>`;
   const bloco=(t,x,cl)=>`<div class="kpi"><small>${t}</small><b class="${cl}">${R(x.total)}</b><small>${x.contas.length} conta(s)</small></div>`;
@@ -94,6 +114,8 @@ async function render(){
   <div class="card"><h2>Lançar gasto</h2><div class="row"><input id="ge" placeholder="Etapa"><input id="gd" placeholder="Descrição"><input id="gf" placeholder="Fornecedor"><input id="gt" type="date"><input id="gv" type="number" step="0.01" placeholder="Valor"><button onclick="gasto()">Lançar</button></div>
    <div class="scroll"><table><tr><th>Data<th>Etapa<th>Descrição<th>Valor<th></tr>${gs.slice(0,50).map(g=>`<tr><td>${esc(g.data)}<td>${esc(g.etapa)}<td>${esc(g.descricao)}<td>${R(g.valor)}<td><a href="#" onclick="del(${g.id});return false">✕</a></tr>`).join('')}</table></div></div>
   <div class="card"><h2>Documentos</h2><input type="file" onchange="envia('documentos',this)">
-   <ul>${docs.map(d=>`<li><a href="/api/documentos/${d.id}/download">${esc(d.nome)}</a> <span class="hint">${esc(d.enviado_em)}</span></li>`).join('')}</ul></div>`;alinhaNumeros()}
-lista();
+   <ul>${docs.map(d=>`<li><a href="/api/documentos/${d.id}/download">${esc(d.nome)}</a> <span class="hint">${esc(d.enviado_em)}</span></li>`).join('')}</ul></div>
+  ${us?`<div class="card"><h2>Usuários</h2><div class="row"><input id="un" placeholder="Nome"><input id="ue" type="email" placeholder="E-mail"><input id="us" type="password" placeholder="Senha (mín. 8)"><select id="up"><option value="editor">Editor</option><option value="leitura">Somente leitura</option><option value="admin">Administrador</option></select><button onclick="novoUsuario()">Adicionar</button></div>
+   <table><tr><th>Nome<th>E-mail<th>Perfil<th></tr>${us.map(u=>`<tr><td>${esc(u.nome)}<td>${esc(u.email)}<td>${esc(u.papel)}<td>${u.id===eu.id?'':`<a href="#" onclick="delUsuario(${u.id});return false">✕</a>`}</tr>`).join('')}</table></div>`:''}`;alinhaNumeros()}
+iniciar();
 </script></body></html>

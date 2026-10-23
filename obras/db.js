@@ -3,7 +3,9 @@ const { Pool, types } = require('pg');
 // NUMERIC (1700) chega como string; os valores do sistema cabem com folga em number
 types.setTypeParser(1700, parseFloat);
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 10 });
+// Vercel/Neon expõem DATABASE_URL ou POSTGRES_URL; em serverless cada instância usa poucas conexões
+const URL_BANCO = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+const pool = new Pool({ connectionString: URL_BANCO, max: process.env.VERCEL ? 2 : 10, idleTimeoutMillis: 10000 });
 const conv = sql => { let i = 0; return sql.replace(/\?/g, () => '$' + ++i); }; // aceita ? como placeholder
 const run = (client, sql, params = []) => client.query(conv(sql), params).then(r => r.rows);
 
@@ -46,7 +48,9 @@ CREATE TABLE IF NOT EXISTS medicoes (id SERIAL PRIMARY KEY, obra_id INTEGER NOT 
 CREATE TABLE IF NOT EXISTS cronograma (obra_id INTEGER NOT NULL REFERENCES obras(id) ON DELETE CASCADE,
   etapa TEXT NOT NULL, inicio TEXT, fim TEXT, PRIMARY KEY (obra_id, etapa));
 CREATE TABLE IF NOT EXISTS documentos (id SERIAL PRIMARY KEY, obra_id INTEGER NOT NULL REFERENCES obras(id) ON DELETE CASCADE,
-  nome TEXT, arquivo TEXT, enviado_em TEXT DEFAULT to_char(now(),'YYYY-MM-DD HH24:MI:SS'));
+  nome TEXT, arquivo TEXT, conteudo BYTEA, enviado_em TEXT DEFAULT to_char(now(),'YYYY-MM-DD HH24:MI:SS'));
+ALTER TABLE documentos ADD COLUMN IF NOT EXISTS conteudo BYTEA;
+CREATE TABLE IF NOT EXISTS tentativas (chave TEXT PRIMARY KEY, n INTEGER NOT NULL, ate TIMESTAMPTZ NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_contas_venc ON contas (pago_em, vencimento);
 CREATE INDEX IF NOT EXISTS idx_gastos_obra ON gastos (obra_id, etapa);
 `;

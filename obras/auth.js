@@ -35,11 +35,13 @@ async function usuarioDaSessao(req) {
   return (await one(`SELECT u.id, u.nome, u.email, u.papel FROM sessoes s JOIN usuarios u ON u.id=s.usuario_id WHERE s.token_hash=? AND s.expira_em > now()`, [sha(t)])) || null;
 }
 
-// Bloqueio simples contra tentativa em massa: 5 erros por e-mail+IP trava por 15 min
-const falhas = new Map();
-const chave = (req, email) => `${req.ip}|${String(email).toLowerCase()}`;
-const bloqueado = k => { const f = falhas.get(k); return !!f && f.n >= 5 && Date.now() < f.ate; };
-const registraFalha = k => { const f = falhas.get(k) || { n: 0 }; f.n++; f.ate = Date.now() + 15 * 60 * 1000; falhas.set(k, f); };
+// Bloqueio contra tentativa em massa: 5 erros por e-mail+IP travam por 15 min.
+// Fica no banco porque em serverless a memória não é compartilhada entre execuções.
+const chave = (req, email) => `${req.ip}|${String(email).toLowerCase().slice(0, 200)}`;
+const bloqueado = async k => !!(await one('SELECT 1 AS x FROM tentativas WHERE chave=? AND n>=5 AND ate>now()', [k]));
+const registraFalha = k => q(`INSERT INTO tentativas (chave,n,ate) VALUES (?,1, now() + interval '15 minutes')
+  ON CONFLICT (chave) DO UPDATE SET n = CASE WHEN tentativas.ate < now() THEN 1 ELSE tentativas.n + 1 END, ate = now() + interval '15 minutes'`, [k]);
+const limpaFalhas = k => q('DELETE FROM tentativas WHERE chave=?', [k]);
 
 function validaNovoUsuario(b) {
   const nome = String(b.nome || '').trim(), email = String(b.email || '').trim().toLowerCase(), senha = String(b.senha || '');
@@ -60,4 +62,4 @@ async function exigeLogin(req, res, next) {
   next();
 }
 
-module.exports = { PAPEIS, hashSenha, confereSenha, abreSessao, fechaSessao, usuarioDaSessao, bloqueado, registraFalha, chave, falhas, validaNovoUsuario, exigeLogin };
+module.exports = { PAPEIS, hashSenha, confereSenha, abreSessao, fechaSessao, usuarioDaSessao, bloqueado, registraFalha, limpaFalhas, chave, validaNovoUsuario, exigeLogin };

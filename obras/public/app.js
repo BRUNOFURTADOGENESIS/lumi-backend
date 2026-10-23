@@ -23,7 +23,7 @@ const ICON = {
 const ico = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
 const VIEWS = [['geral', 'Visão geral'], ['orcamento', 'Orçamento'], ['cronograma', 'Cronograma'], ['financeiro', 'Financeiro'], ['documentos', 'Documentos'], ['usuarios', 'Usuários']];
 
-const S = { user: null, setup: false, obras: [], obra: null, view: 'geral', orc: [] };
+const S = { user: null, setup: false, codigo: false, obras: [], obra: null, view: 'geral', orc: [] };
 
 /* ---------- rede ---------- */
 async function api(u, o) {
@@ -70,6 +70,7 @@ function telaEntrada() {
     <div class="linha-cota">acesso restrito</div></div>
     <div class="form-lado"><form id="fe" novalidate><h2>${S.setup ? 'Criar administrador' : 'Entrar'}</h2>
     ${S.setup ? '<p class="mut" style="margin:0">Primeiro acesso: cadastre quem vai administrar o sistema.</p><label class="campo">Nome<input name="nome" autocomplete="name"></label>' : ''}
+    ${S.setup && S.codigo ? '<label class="campo">Código de instalação<input name="codigo" type="password" autocomplete="off"></label>' : ''}
     <label class="campo">E-mail<input name="email" type="email" autocomplete="username"></label>
     <label class="campo">Senha${S.setup ? ' (mínimo 8 caracteres)' : ''}<input name="senha" type="password" autocomplete="${S.setup ? 'new-password' : 'current-password'}"></label>
     <div class="msg-erro" id="me" role="alert"></div><button class="btn amarelo" type="submit">${S.setup ? 'Criar e entrar' : 'Entrar'}</button></form></div></div>`;
@@ -249,7 +250,7 @@ VIEW.financeiro = async () => {
 
 VIEW.documentos = async () => {
   const ds = await api(O() + '/documentos');
-  return cab(nomeObra(), 'Documentos') + `<div class="grade g2e"><section class="cartao"><header><h2>Enviar arquivo</h2></header><div class="corpo"><div class="caixa-arq"><b>PDF, imagem ou planilha</b><small>Contratos, notas fiscais, projetos, medições. Até 25 MB por arquivo.</small><input type="file" data-change="docUp" aria-label="Arquivo"></div></div></section>
+  return cab(nomeObra(), 'Documentos') + `<div class="grade g2e"><section class="cartao"><header><h2>Enviar arquivo</h2></header><div class="corpo"><div class="caixa-arq"><b>PDF, imagem ou planilha</b><small>Contratos, notas fiscais, projetos, medições. Até 4 MB por arquivo.</small><input type="file" data-change="docUp" aria-label="Arquivo"></div></div></section>
   <section class="cartao"><header><h2>Arquivos da obra</h2><small>${ds.length}</small></header>${ds.length ? `<ul class="atencao">${ds.map(d => `<li><span class="ico info">${/\.pdf$/i.test(d.nome) ? 'PDF' : '▤'}</span><div><b>${esc(d.nome)}</b><small>enviado em ${esc(d.enviado_em)}</small></div><a class="btn mini vazado" href="/api/documentos/${d.id}/download">Baixar</a></li>`).join('')}</ul>` : `<div class="vazio"><b>Nenhum documento</b>Envie o primeiro arquivo ao lado.</div>`}</section></div>`;
 };
 
@@ -318,7 +319,7 @@ document.addEventListener('change', e => { const a = e.target.closest('[data-cha
 /* ---------- início ---------- */
 (async () => {
   try {
-    const st = await fetch('/api/auth/status').then(r => r.json()); S.setup = st.precisa_setup;
+    const st = await fetch('/api/auth/status').then(r => r.json()); S.setup = st.precisa_setup; S.codigo = !!st.exige_codigo;
     if (st.usuario) { S.user = st.usuario; await abrir(); } else telaEntrada();
   } catch { $('#raiz').innerHTML = '<div class="vazio"><b>Sem conexão com o servidor</b>Recarregue a página.</div>'; }
 })();

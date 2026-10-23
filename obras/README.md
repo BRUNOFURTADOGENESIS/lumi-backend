@@ -2,7 +2,11 @@
 
 Sistema de gestão de obras e financeiro para o engenheiro: orçamento, medição física, cronograma, contas a pagar, fluxo de caixa, documentos e relatório previsto × gasto.
 
-## Rodar
+## Publicar
+
+Veja [DEPLOY.md](DEPLOY.md) (Vercel + Neon).
+
+## Rodar localmente
 
 Requer Node 22+ e um Postgres.
 
@@ -21,7 +25,7 @@ As tabelas são criadas sozinhas na primeira execução. No primeiro acesso a te
 |---|---|
 | `DATABASE_URL` | conexão Postgres (obrigatória) |
 | `PORT` | porta (padrão 3100) |
-| `DATA_DIR` | pasta dos documentos enviados (padrão `./data`). Em hospedagem, aponte para um disco persistente |
+| `SETUP_TOKEN` | se definido, o cadastro do primeiro administrador exige este código |
 | `COOKIE_SECURE=1` | marca o cookie de sessão como Secure (use sempre com HTTPS) |
 | `TZ_OBRA` | fuso usado para "hoje" (padrão `America/Sao_Paulo`) |
 | `TRUST_PROXY=1` | use atrás de proxy/balanceador (Render, Fly, Nginx) para o HTTPS e o IP serem reconhecidos |
@@ -39,6 +43,7 @@ Tela em `public/` (HTML, CSS e JS puros, sem build). Fontes Big Shoulders Displa
 
 ## Pendências conhecidas
 
-- Documentos ficam em disco local (`DATA_DIR`), fora do banco: incluir no backup.
+- Documentos ficam no banco (até 4 MB cada).
+- A biblioteca `xlsx` (npm) é antiga e tem avisos de segurança conhecidos; como o sistema lê planilhas enviadas por usuários logados, vale trocá-la antes de abrir para muitas pessoas.
 - Sem recuperação de senha por e-mail; um administrador redefine apagando e recriando o usuário.
 - Leitura automática de PDF e integração com WhatsApp ainda não existem.

@@ -2,12 +2,8 @@ const express = require('express');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const path = require('path');
-const fs = require('fs');
 const { q, one, tx, migrate } = require('./db');
 const auth = require('./auth');
-
-const DATA = process.env.DATA_DIR || path.join(__dirname, 'data');
-fs.mkdirSync(path.join(DATA, 'docs'), { recursive: true });
 
 const norm = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 const num = v => {
@@ -55,21 +51,30 @@ const hojeLocal = () => new Date().toLocaleDateString('sv-SE', { timeZone: proce
 const hoje = req => (isoDate(req.query.hoje) ? req.query.hoje : hojeLocal());
 const addDias = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const diasEntre = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000);
+const crypto = require('crypto');
+const igual = (a, b) => { const x = Buffer.from(String(a)), y = Buffer.from(String(b)); return x.length === y.length && crypto.timingSafeEqual(x, y); };
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const ID = v => (Number.isInteger(Number(v)) && Number(v) > 0 && Number(v) < 2147483647 ? Number(v) : 0);
 
+// A Vercel recusa corpos acima de 4,5 MB; mantemos 4 MB para valer em qualquer hospedagem
+const LIMITE_ARQ = 4 * 1024 * 1024;
 const app = express();
-if (process.env.TRUST_PROXY) app.set('trust proxy', 1);
+if (process.env.TRUST_PROXY || process.env.VERCEL) app.set('trust proxy', 1);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: LIMITE_ARQ } });
+
+// verificação de saúde para a hospedagem (sem login, sem dados)
+app.get('/healthz', wrap(async (req, res) => { await one('SELECT 1 AS ok'); res.json({ ok: true }); }));
 
 // ---------- Autenticação ----------
 app.get('/api/auth/status', wrap(async (req, res) => {
   const { n } = await one('SELECT COUNT(*)::int AS n FROM usuarios');
-  res.json({ precisa_setup: n === 0, usuario: await auth.usuarioDaSessao(req) });
+  res.json({ precisa_setup: n === 0, exige_codigo: n === 0 && !!process.env.SETUP_TOKEN, usuario: await auth.usuarioDaSessao(req) });
 }));
 app.post('/api/auth/setup', wrap(async (req, res) => {
+  // com SETUP_TOKEN definido, só quem tem o código cria o primeiro administrador
+  if (process.env.SETUP_TOKEN && !igual(req.body.codigo || '', process.env.SETUP_TOKEN)) return res.status(403).json({ erro: 'código de instalação incorreto' });
   const erro = auth.validaNovoUsuario(req.body);
   if (erro) return res.status(400).json({ erro });
   const hash = await auth.hashSenha(String(req.body.senha));
@@ -83,11 +88,11 @@ app.post('/api/auth/setup', wrap(async (req, res) => {
 }));
 app.post('/api/auth/login', wrap(async (req, res) => {
   const email = String(req.body.email || '').trim().toLowerCase(), k = auth.chave(req, email);
-  if (auth.bloqueado(k)) return res.status(429).json({ erro: 'muitas tentativas; tente novamente em 15 minutos' });
+  if (await auth.bloqueado(k)) return res.status(429).json({ erro: 'muitas tentativas; tente novamente em 15 minutos' });
   const u = await one('SELECT * FROM usuarios WHERE email=?', [email]);
   const ok = u ? await auth.confereSenha(String(req.body.senha || ''), u.senha_hash) : (await auth.hashSenha('x'), false);
-  if (!ok) { auth.registraFalha(k); return res.status(401).json({ erro: 'e-mail ou senha incorretos' }); }
-  auth.falhas.delete(k);
+  if (!ok) { await auth.registraFalha(k); return res.status(401).json({ erro: 'e-mail ou senha incorretos' }); }
+  await auth.limpaFalhas(k);
   await auth.abreSessao(req, res, u.id);
   res.json({ id: u.id, nome: u.nome, email: u.email, papel: u.papel });
 }));
@@ -178,21 +183,19 @@ app.get('/api/obras/:id/gastos', wrap(async (req, res) =>
   res.json(await q('SELECT * FROM gastos WHERE obra_id=? ORDER BY data DESC, id DESC', [ID(req.params.id)]))));
 app.delete('/api/gastos/:id', wrap(async (req, res) => { await q('DELETE FROM gastos WHERE id=?', [ID(req.params.id)]); res.json({ ok: true }); }));
 
-// Documentos (PDF, imagens, planilhas) vinculados à obra
+// Documentos (PDF, imagens, planilhas) vinculados à obra; o conteúdo fica no banco (hospedagem sem disco)
 app.post('/api/obras/:id/documentos', obraExiste, upload.single('arquivo'), wrap(async (req, res) => {
   if (!req.file) return res.status(400).json({ erro: 'envie o campo "arquivo"' });
-  const arquivo = Date.now() + '-' + Math.random().toString(36).slice(2, 8) + path.extname(req.file.originalname).toLowerCase().replace(/[^.a-z0-9]/g, '');
-  await fs.promises.writeFile(path.join(DATA, 'docs', arquivo), req.file.buffer);
   const nome = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
-  await q('INSERT INTO documentos (obra_id,nome,arquivo) VALUES (?,?,?)', [ID(req.params.id), nome, arquivo]);
+  await q('INSERT INTO documentos (obra_id,nome,arquivo,conteudo) VALUES (?,?,?,?)', [ID(req.params.id), nome, '', req.file.buffer]);
   res.status(201).json({ ok: true });
 }));
 app.get('/api/obras/:id/documentos', wrap(async (req, res) =>
   res.json(await q('SELECT id,nome,enviado_em FROM documentos WHERE obra_id=? ORDER BY id DESC', [ID(req.params.id)]))));
 app.get('/api/documentos/:id/download', wrap(async (req, res) => {
-  const d = await one('SELECT * FROM documentos WHERE id=?', [ID(req.params.id)]);
+  const d = await one('SELECT nome, conteudo FROM documentos WHERE id=? AND conteudo IS NOT NULL', [ID(req.params.id)]);
   if (!d) return res.sendStatus(404);
-  res.download(path.join(DATA, 'docs', d.arquivo), d.nome);
+  res.attachment(d.nome).type(path.extname(d.nome) || 'application/octet-stream').send(d.conteudo);
 }));
 
 // Relatório: previsto × gasto por etapa
@@ -394,6 +397,7 @@ app.get('/api/obras/:id/avanco', wrap(async (req, res) => {
 // erro inesperado: registra no servidor e devolve resposta genérica (sem vazar detalhes)
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
+  if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ erro: 'Arquivo acima de 4 MB. Reduza ou divida o arquivo.' });
   if (err instanceof SyntaxError && err.status === 400) return res.status(400).json({ erro: 'JSON inválido' });
   console.error(err);
   res.status(500).json({ erro: 'erro interno' });
@@ -401,8 +405,9 @@ app.use((err, req, res, next) => {
 
 module.exports = app;
 module.exports.pronto = migrate();
+module.exports.pronto.catch(() => {}); // quem espera (servidor ou função) trata o erro; evita rejeição sem tratador
 if (require.main === module) {
-  if (!process.env.DATABASE_URL) { console.error('Defina DATABASE_URL (ex.: postgres://usuario:senha@localhost:5432/obras)'); process.exit(1); }
+  if (!(process.env.DATABASE_URL || process.env.POSTGRES_URL)) { console.error('Defina DATABASE_URL (ex.: postgres://usuario:senha@localhost:5432/obras)'); process.exit(1); }
   const PORT = process.env.PORT || 3100;
   app.pronto.then(() => app.listen(PORT, () => console.log(`Gestão de Obras em http://localhost:${PORT}`)))
     .catch(e => { console.error('Falha ao preparar o banco:', e.message); process.exit(1); });

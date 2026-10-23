@@ -2,7 +2,6 @@ const assert = require('assert');
 const os = require('os'), fs = require('fs'), path = require('path');
 const XLSX = require('xlsx');
 const { Client } = require('pg');
-process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'obras-'));
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL || 'postgres://obras:obras@localhost:5432/obras_test';
 
 const xlsx = rows => {
@@ -20,6 +19,20 @@ const form = (name, buf, fn) => { const f = new FormData(); f.append(name, new B
   global.fetch = (u, o = {}) => realFetch(u, { ...o, headers: { ...(o.headers || {}), Cookie: cookie } });
   const semLogin = (u, o) => realFetch(base + u, o);
   const J = { 'Content-Type': 'application/json' };
+
+  // ---- saúde e código de instalação ----
+  const raiz = base.replace('/api', '');
+  assert.equal((await realFetch(raiz + '/healthz').then(r => r.json())).ok, true);
+  process.env.SETUP_TOKEN = 'abre-sesamo';
+  assert.equal((await semLogin('/auth/status').then(r => r.json())).exige_codigo, true);
+  const semCodigo = await semLogin('/auth/setup', { method: 'POST', headers: J, body: JSON.stringify({ nome: 'Eng', email: 'eng@x.com', senha: 'senha-forte-1' }) });
+  assert.equal(semCodigo.status, 403);
+  assert.equal((await semLogin('/auth/setup', { method: 'POST', headers: J, body: JSON.stringify({ nome: 'Eng', email: 'eng@x.com', senha: 'senha-forte-1', codigo: 'errado' }) })).status, 403);
+  delete process.env.SETUP_TOKEN;
+
+  // ---- bloqueio de tentativas (guardado no banco) ----
+  for (let i = 0; i < 5; i++) await semLogin('/auth/login', { method: 'POST', headers: J, body: JSON.stringify({ email: 'alvo@x.com', senha: 'x' + i }) });
+  assert.equal((await semLogin('/auth/login', { method: 'POST', headers: J, body: JSON.stringify({ email: 'alvo@x.com', senha: 'qualquer' }) })).status, 429);
 
   // ---- autenticação ----
   assert.equal((await semLogin('/obras')).status, 401);
@@ -67,7 +80,10 @@ const form = (name, buf, fn) => { const f = new FormData(); f.append(name, new B
   await fetch(`${base}/obras/${id}/documentos`, { method: 'POST', body: form('arquivo', 'PDF', 'nota.pdf') });
   const docs = await fetch(`${base}/obras/${id}/documentos`).then(r => r.json());
   assert.equal(docs.length, 1);
-  assert.equal((await fetch(`${base}/documentos/${docs[0].id}/download`)).status, 200);
+  const dl = await fetch(`${base}/documentos/${docs[0].id}/download`);
+  assert.equal(dl.status, 200); assert.equal(await dl.text(), 'PDF'); assert.ok(/nota\.pdf/.test(dl.headers.get('content-disposition')));
+  const grande = await fetch(`${base}/obras/${id}/documentos`, { method: 'POST', body: form('arquivo', Buffer.alloc(4 * 1024 * 1024 + 10), 'grande.pdf') });
+  assert.equal(grande.status, 413);
 
   const rel = await fetch(`${base}/obras/${id}/relatorio`).then(r => r.json());
   assert.equal(rel.previsto, 7000);

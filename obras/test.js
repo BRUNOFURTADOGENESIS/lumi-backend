@@ -153,6 +153,72 @@ const form = (name, buf, fn) => { const f = new FormData(); f.append(name, new B
   assert.equal(Math.round(al.pct_planejado), 45);
   assert.ok(Math.abs(av.pct_fisico_obra - (5000 * 80 + 2000 * 10) / 7000) < 1e-9);
   console.log('avanço OK');
+
+  // ---- central de importação ----
+  const proc = async (buf, nome, config, simular) => {
+    const f = new FormData(); f.append('arquivo', new Blob([buf]), nome);
+    if (config) f.append('config', JSON.stringify(config)); if (simular) f.append('simular', '1');
+    const r = await fetch(`${base}/obras/${id}/importacao/processar`, { method: 'POST', body: f }); return { status: r.status, ...(await r.json()) };
+  };
+  const dv = c => { let s = 0, p = 2; for (let i = 42; i >= 0; i--) { s += Number(c[i]) * p; p = p === 9 ? 2 : p + 1; } const r = s % 11; return r < 2 ? 0 : 11 - r; };
+  const c43 = '35' + '2610' + '12345678000195' + '55' + '001' + '000004321' + '1' + '12345678', CHAVE = c43 + dv(c43);
+  const aoa = rows => { const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'a'); return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }); };
+
+  // planilha de gastos com formato brasileiro: reconhece, grava e não duplica ao subir de novo
+  const gastosX = aoa([['Data', 'Fornecedor', 'Descrição', 'Valor Pago', 'Etapa'], ['10/03/2026', 'Hidro Forte', 'NF 900', '1.234,50', 'Hidráulica'], ['11/03/2026', 'Hidro Forte', 'NF 901', '765,50', 'Hidráulica']]);
+  let a1 = await proc(gastosX, 'pag.xlsx'); assert.equal(a1.tipo, 'gastos'); assert.equal(a1.previa.total, 2); assert.equal(a1.previa.soma, 2000);
+  let g1 = await proc(gastosX, 'pag.xlsx', { ...a1.config, tipo: 'gastos' }); assert.deepEqual([g1.gravados, g1.ignorados], [2, 0]);
+  let g2 = await proc(gastosX, 'pag.xlsx', { ...a1.config, tipo: 'gastos' }); assert.deepEqual([g2.gravados, g2.ignorados], [0, 2]); // mesma planilha de novo: ignora
+
+  // orçamento com títulos de etapa e conferência do total
+  const eap = aoa([['Código', 'Descrição', 'Un', 'Quant.', 'Preço Unit.', 'Total'], ['1', 'COBERTURA', '', '', '', 12000], ['1.1', 'Telhas', 'm²', 100, 80, 8000], ['1.2', 'Calhas', 'm', 50, 80, 4000], ['TOTAL', '', '', '', '', 12000]]);
+  let a2 = await proc(eap, 'eap.xlsx'); assert.equal(a2.tipo, 'orcamento'); assert.ok(a2.avisosNorm.some(x => /bate com o total/.test(x)));
+  let o1 = await proc(eap, 'eap.xlsx', { ...a2.config, tipo: 'orcamento', modo: 'somar' }); assert.equal(o1.gravados, 2);
+  assert.equal((await j(`/obras/${id}/orcamento`)).filter(i => i.etapa === 'COBERTURA').length, 2);
+  assert.equal((await proc(eap, 'eap.xlsx', { ...a2.config, tipo: 'orcamento', modo: 'somar' })).ignorados, 2);
+  assert.equal((await proc(aoa([['x', 'y'], [1, 2]]), 'x.xlsx', { tipo: 'orcamento', folha: 'a', linhaCab: 0, mapa: {} })).status, 400); // sem colunas válidas
+
+  // fornecedores por planilha (completa o que está vazio, sem apagar o que existe)
+  const fornX = aoa([['Razão Social', 'CNPJ', 'Especialidade', 'Cidade', 'Telefone'], ['Concreteira Sul Ltda', '12.345.678/0001-95', 'Concreto', 'Porto Alegre', '(51) 3333-4444'], ['Elétrica Luz', '', 'Elétrica', 'Canoas', '']]);
+  let a3 = await proc(fornX, 'forn.xlsx'); assert.equal(a3.tipo, 'fornecedores');
+  let f1 = await proc(fornX, 'forn.xlsx', { ...a3.config, tipo: 'fornecedores' }); assert.equal(f1.criados + f1.atualizados, 2);
+  const fl = await j('/fornecedores'); const cs = fl.find(f => f.nome === 'Concreteira'); assert.ok(cs);
+  const ce = fl.find(f => f.nome === 'Concreteira Sul Ltda'); assert.equal(ce.cnpj, '12345678000195'); assert.equal(ce.especialidade, 'Concreto');
+
+  // nota fiscal XML: lê exato, cria fornecedor/contas a pagar e bloqueia a mesma nota duas vezes
+  const nfe = `<?xml version="1.0"?><nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><NFe><infNFe Id="NFe${CHAVE}"><ide><nNF>4321</nNF><serie>1</serie><dhEmi>2026-10-12T10:00:00-03:00</dhEmi></ide><emit><CNPJ>12345678000195</CNPJ><xNome>CONCRETEIRA SUL LTDA</xNome></emit><det nItem="1"><prod><xProd>Concreto</xProd><uCom>M3</uCom><qCom>10</qCom><vUnCom>600</vUnCom><vProd>6000.00</vProd></prod></det><total><ICMSTot><vNF>6000.00</vNF></ICMSTot></total><cobr><dup><nDup>001</nDup><dVenc>2026-11-12</dVenc><vDup>3000.00</vDup></dup><dup><nDup>002</nDup><dVenc>2026-12-12</dVenc><vDup>3000.00</vDup></dup></cobr></infNFe></NFe></nfeProc>`;
+  let a4 = await proc(Buffer.from(nfe), 'nota.xml'); assert.equal(a4.tipo, 'nota_fiscal'); assert.equal(a4.nota.valor, 6000); assert.equal(a4.nota.parcelas.length, 2); assert.equal(a4.duplicada, false);
+  assert.equal((await proc(Buffer.from(nfe), 'nota.xml', { tipo: 'nota_fiscal', nota: { ...a4.nota, etapa: 'Fundação', parcelas: [{ vencimento: '2026-11-12', valor: 1000 }] } })).status, 400); // parcelas não somam
+  const n1 = await proc(Buffer.from(nfe), 'nota.xml', { tipo: 'nota_fiscal', nota: { ...a4.nota, etapa: 'Fundação' } }); assert.equal(n1.contas, 2); assert.equal(n1.fornecedorNovo, false); // já existia pelo CNPJ
+  const nc = (await j(`/obras/${id}/contas?hoje=2026-10-10`)).filter(c => c.descricao.startsWith('NF 4321')); assert.equal(nc.length, 2); assert.equal(nc[0].fornecedor, 'Concreteira Sul Ltda');
+  assert.equal((await proc(Buffer.from(nfe), 'nota.xml', { tipo: 'nota_fiscal', nota: { ...a4.nota, etapa: 'Fundação' } })).status, 409); // mesma nota de novo
+  assert.equal((await proc(Buffer.from(nfe), 'nota.xml')).duplicada, true);
+
+  // nome parecido com fornecedor já cadastrado: o sistema avisa em vez de duplicar
+  const nfe2 = nfe.replace(/12345678000195/g, '55555555000155').replace('CONCRETEIRA SUL LTDA', 'Concreteira Sul').replace(/NFe\d{44}/, 'NFe' + (() => { const c = '35261055555555000155550010000099991123456789'.slice(0, 43); return c + dv(c); })());
+  const a6 = await proc(Buffer.from(nfe2), 'nota2.xml'); assert.ok(a6.similares && a6.similares.some(x => x.nome === 'Concreteira Sul Ltda'), JSON.stringify(a6.similares));
+
+  // duplicados: acha, junta, move contas e pagamentos, e recusa CNPJs diferentes
+  await post(`/obras/${id}/contas`, { fornecedor: 'Equipe Beta', etapa: 'Alvenaria', descricao: 'Empreitada', vencimento: '2026-12-01', valor: 500 });
+  await post(`/obras/${id}/gastos`, { etapa: 'Alvenaria', descricao: 'Medição', fornecedor: 'Equipe Beta', data: '2026-09-01', valor: 700 });
+  await post('/fornecedores', { nome: 'Equipe Beta Ltda', cnpj: '33.444.555/0001-66', cidade: 'Canoas' });
+  const dups = await j('/fornecedores/duplicados'); const par = dups.find(p => [p.a.nome, p.b.nome].includes('Equipe Beta') && [p.a.nome, p.b.nome].includes('Equipe Beta Ltda')); assert.ok(par);
+  const fbeta = (await j('/fornecedores')).find(f => f.nome === 'Equipe Beta'), fltda = (await j('/fornecedores')).find(f => f.nome === 'Equipe Beta Ltda');
+  assert.equal(fbeta.pago, 700);
+  const m = await post('/fornecedores/mesclar', { origem_id: fbeta.id, destino_id: fltda.id }); assert.deepEqual([m.contas, m.pagamentos], [1, 1]);
+  const depois = (await j('/fornecedores')).find(f => f.nome === 'Equipe Beta Ltda'); assert.equal(depois.pago, 700); assert.equal(depois.em_aberto, 500); assert.equal(depois.cnpj, '33444555000166');
+  assert.equal((await j('/fornecedores')).some(f => f.nome === 'Equipe Beta'), false);
+  await post('/fornecedores', { nome: 'Alfa Obras', cnpj: '11.111.111/0001-11' }); await post('/fornecedores', { nome: 'Alfa Obras Sul', cnpj: '22.222.222/0001-22' });
+  const fa = (await j('/fornecedores')).find(f => f.nome === 'Alfa Obras'), fs = (await j('/fornecedores')).find(f => f.nome === 'Alfa Obras Sul');
+  assert.equal((await fetch(`${base}/fornecedores/mesclar`, { method: 'POST', headers: J, body: JSON.stringify({ origem_id: fa.id, destino_id: fs.id }) })).status, 409);
+
+  // cotação e arquivos desconhecidos: só guarda
+  const cot = aoa([['Item', 'Un', 'Qtd', 'Forn. A', 'Forn. B', 'Forn. C'], ['Porta', 'un', 20, 850, 790, 910], ['Janela', 'un', 30, 620, 655, 600]]);
+  const a5 = await proc(cot, 'cot.xlsx'); assert.equal(a5.tipo, 'cotacao');
+  assert.equal((await proc(cot, 'cot.xlsx', { tipo: 'cotacao' })).documento, true);
+  assert.equal((await proc(Buffer.from('%PDF-1.4\n%%EOF'), 'scan.pdf')).tipo, 'documento');
+  assert.equal((await fetch(`${base}/obras/99999/importacao/processar`, { method: 'POST', body: new FormData() })).status, 404);
+  console.log('importação OK');
   console.log('OK', JSON.stringify(rel));
   srv.close();
 })().catch(e => { console.error(e); process.exit(1); });

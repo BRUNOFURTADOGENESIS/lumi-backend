@@ -18,12 +18,14 @@ const ICON = {
   cronograma: '<path d="M3 5h18M3 12h12M3 19h8M7 3v4M15 10v4M11 17v4"/>',
   financeiro: '<path d="M3 7h18v12H3zM3 11h18M7 15h4"/>',
   documentos: '<path d="M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6"/>',
+  importar: '<path d="M12 3v12M7 10l5 5 5-5M4 19h16"/>',
+  fornecedores: '<path d="M3 21h18M5 21V8l7-4 7 4v13M9 21v-5h6v5M9 11h2M13 11h2"/>',
   usuarios: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 5.5a3 3 0 0 1 0 5M18 14c2 .7 3 2.5 3 5"/>',
 };
 const ico = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
-const VIEWS = [['geral', 'Visão geral'], ['orcamento', 'Orçamento'], ['cronograma', 'Cronograma'], ['financeiro', 'Financeiro'], ['documentos', 'Documentos'], ['usuarios', 'Usuários']];
+const VIEWS = [['geral', 'Visão geral'], ['importar', 'Importar'], ['orcamento', 'Orçamento'], ['cronograma', 'Cronograma'], ['financeiro', 'Financeiro'], ['fornecedores', 'Fornecedores'], ['documentos', 'Documentos'], ['usuarios', 'Usuários']];
 
-const S = { user: null, setup: false, codigo: false, obras: [], obra: null, view: 'geral', orc: [] };
+const S = { fila: [], forn: [], etapas: [], user: null, setup: false, codigo: false, obras: [], obra: null, view: 'geral', orc: [] };
 
 /* ---------- rede ---------- */
 async function api(u, o) {
@@ -108,13 +110,13 @@ async function tela() {
   $$('.nav a').forEach(a => a.setAttribute('aria-current', a.dataset.v === S.view ? 'page' : 'false'));
   const m = $('#main'); if (!m) return;
   if (S.view === 'usuarios' && S.user.papel !== 'admin') { location.hash = '#/geral'; return; }
-  if (!S.obra && S.view !== 'usuarios') {
+  if (!S.obra && !['usuarios', 'fornecedores'].includes(S.view)) {
     m.innerHTML = cab('Comece por aqui', 'Nenhuma obra') + `<div class="cartao"><div class="vazio"><b>Cadastre a primeira obra</b>Depois importe o orçamento por planilha para ver custo e avanço.<br><br><button class="btn amarelo" data-act="novaObra">Nova obra</button></div></div>`;
     return;
   }
   const y = window.scrollY;
   try { m.innerHTML = await VIEW[S.view](); } catch (e) { if (e.message !== 'faça login') m.innerHTML = `<div class="cartao"><div class="vazio"><b>Não foi possível carregar</b>${esc(e.message)}</div></div>`; return; }
-  window.scrollTo(0, y); badge();
+  window.scrollTo(0, y); badge(); if (POS[S.view]) POS[S.view]();
 }
 async function badge() {
   try { const p = await api('/api/painel'); const n = p.atrasadas.contas.filter(c => c.obra_id == S.obra).length; const b = $('#bd'); if (b) { b.hidden = !n; b.textContent = n; } } catch {}
@@ -137,7 +139,7 @@ const TAG = { concluida: ['ok', 'Concluída'], atrasada: ['ruim', 'Atrasada'], e
 const tag = s => `<span class="tag ${TAG[s][0]}">${TAG[s][1]}</span>`;
 
 /* ---------- telas ---------- */
-const VIEW = {};
+const VIEW = {}, POS = {};
 
 VIEW.geral = async () => {
   const [rel, av, cs] = await Promise.all([api(O() + '/relatorio'), api(O() + '/avanco'), api(O() + '/contas')]);
@@ -262,9 +264,170 @@ VIEW.usuarios = async () => {
   <label class="campo">Perfil<select id="up"><option value="editor">Editor: lança e altera</option><option value="leitura">Somente leitura: só consulta</option><option value="admin">Administrador: também gerencia usuários</option></select></label><button class="btn amarelo" data-act="novoUsuario">Adicionar usuário</button></div></div></section></div>`;
 };
 
+
+/* ---------- importação: soltar arquivos, conferir, gravar ---------- */
+const CAMPOS_UI = {
+  orcamento: [['etapa', 'Etapa'], ['item', 'Item'], ['unidade', 'Unidade'], ['qtd', 'Quantidade'], ['valor_unit', 'Valor unitário'], ['total', 'Total']],
+  materiais: [['etapa', 'Etapa'], ['item', 'Item'], ['unidade', 'Unidade'], ['qtd', 'Quantidade']],
+  gastos: [['data', 'Data'], ['etapa', 'Etapa'], ['descricao', 'Descrição'], ['fornecedor', 'Fornecedor'], ['valor', 'Valor']],
+  fornecedores: [['nome', 'Nome ou razão social'], ['cnpj', 'CNPJ'], ['especialidade', 'Especialidade'], ['cidade', 'Cidade'], ['telefone', 'Telefone'], ['email', 'E-mail'], ['contato', 'Contato']],
+};
+const TIPO_OPC = [['orcamento', 'Orçamento'], ['materiais', 'Lista de materiais'], ['gastos', 'Gastos pagos'], ['fornecedores', 'Fornecedores'], ['nota_fiscal', 'Nota fiscal'], ['cotacao', 'Cotação (só guardar)'], ['documento', 'Só guardar em Documentos']];
+const ehPlan = t => !!CAMPOS_UI[t];
+let filaSeq = 0;
+
+VIEW.importar = async () => {
+  S.etapas = (await api(O() + '/avanco')).etapas.map(e => e.etapa);
+  return cab(nomeObra(), 'Importar') + `
+  <section class="cartao"><div class="corpo"><div class="zona" data-zona>
+    <h3>Solte aqui os arquivos da obra</h3><p>O sistema identifica o que cada um é e mostra o que entendeu antes de gravar qualquer coisa.</p>
+    <label class="btn amarelo" style="cursor:pointer">Escolher arquivos<input type="file" multiple accept=".xlsx,.xls,.csv,.xml,.pdf" data-change="escolher" class="sr"></label>
+    <div class="chips"><span>Nota fiscal XML</span><span>Nota fiscal PDF</span><span>Orçamento</span><span>Gastos pagos</span><span>Lista de materiais</span><span>Fornecedores</span><span>Cotação</span></div>
+  </div></div></section>
+  <div id="fila"></div>
+  <p class="fluxo-leg" style="padding-left:0">Até 4 MB por arquivo. Nota fiscal em <b>XML</b> é lida com exatidão; em PDF, o sistema lê o que consegue e você confere. PDF escaneado ou foto não é lido: fica guardado em Documentos. Planilhas já importadas não duplicam se forem enviadas de novo.</p>`;
+};
+POS.importar = () => pintaFila();
+
+const sel = (attrs, opcoes, atual) => `<select ${attrs}>${opcoes.map(([v, r]) => `<option value="${esc(v)}" ${String(v) === String(atual ?? '') ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>`;
+function cartaoArquivo(it) {
+  const kb = it.file.size < 1048576 ? Math.round(it.file.size / 1024) + ' KB' : (it.file.size / 1048576).toFixed(1) + ' MB';
+  const topo = `<div class="arq-cab"><div><div class="nm">${esc(it.file.name)}</div><small>${kb}</small></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${it.estado === 'pronto' || it.estado === 'erro' ? `${it.a ? `<span class="tag ${it.a.confianca === 'alta' ? 'ok' : it.a.confianca === 'media' ? 'aviso' : ''}">Confiança ${it.a.confianca}</span>` : ''}${sel(`data-ft="${it.id}" aria-label="Tipo do arquivo"`, TIPO_OPC, it.tipo)}` : ''}
+    <button class="lk" data-act="filaTirar" data-id="${it.id}">Remover</button></div></div>`;
+  if (it.estado === 'analisando') return `<section class="cartao arq" id="arq-${it.id}">${topo}<div class="arq-corpo"><span class="dot"></span>Analisando o arquivo…</div></section>`;
+  if (it.estado === 'erro' && !it.a) return `<section class="cartao arq" id="arq-${it.id}">${topo}<div class="arq-corpo neg">${esc(it.erro)}</div></section>`;
+  const avisos = [...(it.a.aviso || []), ...(it.avisosNorm || [])];
+  let corpo = avisos.length ? `<ul class="avisos">${avisos.map(a => `<li class="${/Conferido/.test(a) ? 'ok' : /difere|Nenhuma/.test(a) ? 'ruim' : ''}">${esc(a)}</li>`).join('')}</ul>` : '';
+  if (ehPlan(it.tipo)) {
+    const opc = [['', '— não usar —'], ...(it.a.cabecalho || []).map((h, i) => [i, h || `Coluna ${i + 1}`])];
+    corpo += `<div class="mapa-grid">${CAMPOS_UI[it.tipo].map(([c, r]) => `<label class="campo">${r}${sel(`data-fm="${it.id}" data-campo="${c}"`, opc, it.config.mapa?.[c])}</label>`).join('')}
+      ${it.tipo === 'orcamento' ? `<label class="campo">Se a obra já tem orçamento${sel(`data-fx="${it.id}" data-k="modo"`, [['somar', 'Adicionar ao existente'], ['substituir', 'Substituir tudo']], it.modo || 'somar')}</label>` : ''}
+      ${it.tipo === 'gastos' ? `<label class="campo">Etapa para linhas sem etapa<input data-fx="${it.id}" data-k="etapaPadrao" list="dl-etapas" value="${esc(it.etapaPadrao || '')}"></label>` : ''}</div>`;
+    const p = it.previa;
+    if (p) {
+      const cols = CAMPOS_UI[it.tipo].map(c => c[0]).filter(c => p.previa.some(x => x[c] !== undefined && x[c] !== '' && x[c] !== 0) || ['item', 'valor', 'nome'].includes(c));
+      const rot = Object.fromEntries(CAMPOS_UI[it.tipo]), num = new Set(['qtd', 'valor_unit', 'total', 'valor']);
+      corpo += `<div style="margin-bottom:8px"><b>${p.total} linha${p.total === 1 ? '' : 's'} reconhecida${p.total === 1 ? '' : 's'}</b>${p.soma ? ` · soma ${BRL(p.soma)}` : ''} <span class="mut">${p.total > p.previa.length ? `(mostrando ${p.previa.length})` : ''}</span></div>
+      <div class="previa"><table><thead><tr>${cols.map(c => `<th class="${num.has(c) ? 'r' : ''}">${rot[c]}</th>`).join('')}</tr></thead><tbody>${p.previa.map(x => `<tr>${cols.map(c => `<td class="${num.has(c) ? 'r' : ''}">${num.has(c) && x[c] !== '' ? (c === 'qtd' ? N0(x[c]) : BRL(x[c])) : c === 'data' ? D(x[c]) : esc(x[c])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    }
+  } else if (it.tipo === 'nota_fiscal') {
+    const n = it.nota || { parcelas: [] };
+    corpo += it.duplicada ? `<ul class="avisos"><li class="ruim">Esta nota já foi lançada nesta obra.</li></ul>` : '';
+    corpo += `<div class="form" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+      <label class="campo">Fornecedor<input data-fn="${it.id}" data-k="fornecedor" value="${esc(n.fornecedor || '')}"></label>
+      <label class="campo">CNPJ<input data-fn="${it.id}" data-k="cnpj" value="${esc(n.cnpj || '')}"></label>
+      <label class="campo">Nº da nota<input data-fn="${it.id}" data-k="numero" value="${esc(n.numero || '')}"></label>
+      <label class="campo">Emissão<input type="date" data-fn="${it.id}" data-k="emissao" value="${esc(n.emissao || '')}"></label>
+      <label class="campo">Valor da nota<input data-fn="${it.id}" data-k="valor" inputmode="decimal" value="${n.valor ? String(n.valor).replace('.', ',') : ''}"></label>
+      <label class="campo">Etapa da obra<input data-fn="${it.id}" data-k="etapa" list="dl-etapas" value="${esc(n.etapa || '')}" placeholder="Escolha ou digite"></label></div>
+      ${(it.a.similares || []).filter(x => x.nome !== n.fornecedor).map(x => `<div class="avisos"><li class="ruim" style="list-style:none">Já existe um fornecedor parecido: <b>${esc(x.nome)}</b> <button class="btn mini vazado" data-act="usarForn" data-id="${it.id}" data-nome="${esc(x.nome)}">Usar este</button> para não duplicar o cadastro.</li></div>`).join('')}
+      <div style="font:500 10.5px var(--f-dado);letter-spacing:.1em;text-transform:uppercase;color:var(--tinta-2);margin:4px 0 6px">${n.parcelas.length ? 'Parcelas (vencimentos)' : 'Vencimento'}</div>
+      ${(n.parcelas.length ? n.parcelas : [{ vencimento: n.vencimento || '', valor: '' }]).map((p, i) => `<div class="parc"><label class="campo">Vencimento<input type="date" data-fp="${it.id}" data-i="${i}" data-k="vencimento" value="${esc(p.vencimento || '')}"></label>
+        <label class="campo">Valor<input data-fp="${it.id}" data-i="${i}" data-k="valor" inputmode="decimal" value="${p.valor ? String(p.valor).replace('.', ',') : ''}" ${n.parcelas.length ? '' : 'disabled placeholder="valor total da nota"'}></label>
+        ${n.parcelas.length > 1 ? `<button class="lk perigo" data-act="parcDel" data-id="${it.id}" data-i="${i}">Tirar</button>` : '<span></span>'}</div>`).join('')}
+      <button class="btn mini vazado" data-act="parcAdd" data-id="${it.id}">+ Parcela</button>
+      ${it.a.nota?.itens?.length ? `<details style="margin-top:12px"><summary class="mut" style="cursor:pointer">${it.a.nota.itens.length} item(ns) da nota</summary><div class="previa" style="margin-top:8px"><table><thead><tr><th>Item<th>Un.<th class="r">Qtd<th class="r">Valor unit.<th class="r">Total</tr></thead><tbody>${it.a.nota.itens.map(x => `<tr><td>${esc(x.item)}<td>${esc(x.unidade)}<td class="r">${N0(x.qtd)}<td class="r">${BRL(x.valor_unit)}<td class="r">${BRL(x.total)}</tr>`).join('')}</tbody></table></div></details>` : ''}`;
+  } else {
+    corpo += `<div class="mut">${it.tipo === 'cotacao' ? 'Este comparativo será guardado em Documentos.' : 'O arquivo será guardado em Documentos, sem lançar dados.'}</div>`;
+  }
+  let rod;
+  if (it.estado === 'feito') rod = `<div class="res"><span class="ok">✓ ${esc(it.resultado)}</span></div>`;
+  else rod = `<div class="res"><span class="${it.erro ? 'ruim' : 'mut'}">${it.erro ? esc(it.erro) : it.estado === 'gravando' ? 'Gravando…' : 'Nada foi gravado ainda.'}</span><span>${it.podeForcar ? `<button class="btn vazado" data-act="filaImportar" data-id="${it.id}" data-forcar="1">Lançar mesmo assim</button> ` : ''}<button class="btn amarelo" data-act="filaImportar" data-id="${it.id}" ${it.estado === 'gravando' ? 'disabled' : ''}>${it.tipo === 'documento' || it.tipo === 'cotacao' ? 'Guardar' : 'Importar'}</button></span></div>`;
+  return `<section class="cartao arq" id="arq-${it.id}">${topo}<div class="arq-corpo">${corpo}</div>${rod}</section>`;
+}
+function pintaFila() {
+  const el = $('#fila'); if (!el) return;
+  el.innerHTML = `<datalist id="dl-etapas">${S.etapas.map(e => `<option value="${esc(e)}">`).join('')}</datalist>` + S.fila.map(cartaoArquivo).join('') +
+    (S.fila.filter(i => i.estado === 'pronto').length > 1 ? `<div style="margin-top:14px;text-align:right"><button class="btn" data-act="filaTodos">Importar todos os prontos</button></div>` : '');
+}
+const enviarArq = (it, config, simular) => { const fd = new FormData(); fd.append('arquivo', it.file); if (config) fd.append('config', JSON.stringify(config)); if (simular) fd.append('simular', '1'); return api(`${O()}/importacao/processar`, { method: 'POST', body: fd }); };
+async function adicionarArquivos(files) {
+  for (const file of [...files]) {
+    if (file.size > 4 * 1024 * 1024) { aviso(`${file.name}: acima de 4 MB`, true); continue; }
+    const it = { id: ++filaSeq, file, estado: 'analisando' }; S.fila.push(it); pintaFila();
+    try {
+      const a = await enviarArq(it);
+      Object.assign(it, { a, tipo: a.tipo, config: a.config ? { ...a.config, mapa: { ...a.config.mapa } } : { mapa: {} }, previa: a.previa, avisosNorm: a.avisosNorm || [], modo: 'somar', estado: 'pronto', duplicada: !!a.duplicada });
+      if (a.nota) it.nota = { ...a.nota, etapa: '', vencimento: '', parcelas: (a.nota.parcelas || []).map(p => ({ ...p })) };
+    } catch (e) { it.estado = 'erro'; it.erro = e.message; }
+    pintaFila();
+  }
+}
+async function recalculaPrevia(it) {
+  if (!ehPlan(it.tipo)) return;
+  try { const r = await enviarArq(it, { ...it.config, tipo: it.tipo, etapaPadrao: it.etapaPadrao, modo: it.modo }, true); it.previa = r; it.avisosNorm = r.avisos || []; it.erro = ''; }
+  catch (e) { it.erro = e.message; }
+  pintaFila();
+}
+function configDe(it, forcar) {
+  if (ehPlan(it.tipo)) return { ...it.config, tipo: it.tipo, etapaPadrao: it.etapaPadrao, modo: it.modo };
+  if (it.tipo === 'nota_fiscal') { const n = it.nota; return { tipo: 'nota_fiscal', forcar, nota: { ...n, valor: typeof n.valor === 'number' ? n.valor : dec(n.valor), parcelas: n.parcelas.map(p => ({ ...p, valor: typeof p.valor === 'string' ? dec(p.valor) : p.valor })) } }; }
+  return { tipo: it.tipo };
+}
+async function gravarItem(it, forcar) {
+  it.estado = 'gravando'; it.erro = ''; it.podeForcar = false; pintaFila();
+  try {
+    const r = await enviarArq(it, configDe(it, forcar));
+    it.estado = 'feito';
+    it.resultado = r.documento ? 'Arquivo guardado em Documentos.' : it.tipo === 'nota_fiscal' ? `${r.contas} conta${r.contas > 1 ? 's' : ''} a pagar criada${r.contas > 1 ? 's' : ''}${r.fornecedorNovo ? ' e fornecedor novo cadastrado' : ''}. O arquivo foi guardado em Documentos.`
+      : it.tipo === 'fornecedores' ? `${r.criados} novo${r.criados === 1 ? '' : 's'}, ${r.atualizados} completado${r.atualizados === 1 ? '' : 's'}${r.ignorados ? `, ${r.ignorados} sem mudança` : ''}.`
+      : `${r.gravados} linha${r.gravados === 1 ? '' : 's'} gravada${r.gravados === 1 ? '' : 's'}${r.ignorados ? `; ${r.ignorados} já existia${r.ignorados === 1 ? '' : 'm'} e foi ignorada${r.ignorados === 1 ? '' : 's'}` : ''}.`;
+  } catch (e) {
+    it.estado = 'pronto'; it.erro = e.message;
+    if (/já foi lançada/.test(e.message)) { it.duplicada = true; it.podeForcar = true; }
+  }
+  pintaFila(); badge();
+}
+
+/* ---------- fornecedores ---------- */
+VIEW.fornecedores = async () => {
+  [S.forn, S.dup] = await Promise.all([api('/api/fornecedores'), api('/api/fornecedores/duplicados')]);
+  const esp = [...new Set(S.forn.map(f => f.especialidade).filter(Boolean))].sort();
+  const aberto = S.forn.reduce((a, f) => a + f.em_aberto, 0);
+  return cab('Cadastro', 'Fornecedores', `<div class="data">${S.forn.length} cadastrado${S.forn.length === 1 ? '' : 's'}<b class="num">${BRL(aberto)} em aberto</b></div>`) + `
+ ${S.dup.length ? `<section class="cartao" style="margin-bottom:16px;border-color:var(--aviso)"><header><h2>Possíveis duplicados</h2><small>${S.dup.length} par${S.dup.length > 1 ? 'es' : ''} com nome parecido</small></header><ul class="atencao">${S.dup.map(p => `<li><span class="ico aviso">≈</span><div><b>${esc(p.a.nome)}</b> e <b>${esc(p.b.nome)}</b><small>Se for a mesma empresa, junte: contas e pagamentos vão para o cadastro mantido.</small></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="btn mini vazado" data-act="mesclar" data-manter="${p.a.id}" data-tirar="${p.b.id}" data-nm="${esc(p.a.nome)}" data-nt="${esc(p.b.nome)}">Manter “${esc(p.a.nome.slice(0, 22))}”</button><button class="btn mini vazado" data-act="mesclar" data-manter="${p.b.id}" data-tirar="${p.a.id}" data-nm="${esc(p.b.nome)}" data-nt="${esc(p.a.nome)}">Manter “${esc(p.b.nome.slice(0, 22))}”</button></div></li>`).join('')}</ul></section>` : ''}
+  <section class="cartao"><div class="corpo"><div class="busca"><input id="fq" type="search" placeholder="Buscar por nome, CNPJ, cidade ou contato" aria-label="Buscar fornecedor">
+    <select id="fe" aria-label="Filtrar por especialidade"><option value="">Todas as especialidades</option>${esp.map(e => `<option>${esc(e)}</option>`).join('')}</select>
+    <button class="btn amarelo" data-act="fornNovo">+ Novo fornecedor</button></div>
+    <div class="rolar" id="tf"></div>
+    <p class="fluxo-leg" style="padding:10px 0 0">"Pago" soma os gastos lançados com o nome do fornecedor, em todas as obras. Para trazer uma lista pronta, use <a class="lk" href="#/importar">Importar</a>.</p></div></section>`;
+};
+POS.fornecedores = () => pintaForn();
+function pintaForn() {
+  const t = $('#tf'); if (!t) return;
+  const q = norm1($('#fq').value), e = $('#fe').value;
+  const l = S.forn.filter(f => (!e || f.especialidade === e) && (!q || norm1([f.nome, f.cnpj, f.cidade, f.contato, f.email, f.telefone, f.especialidade].join(' ')).includes(q)));
+  t.innerHTML = l.length ? `<table><thead><tr><th>Fornecedor<th>Especialidade<th>Cidade<th>Contato<th class="r">Pago<th class="r">Em aberto<th></tr></thead><tbody>${l.map(f => `<tr><td><b>${esc(f.nome)}</b>${f.cnpj ? `<br><small class="mut num">${esc(fmtCnpj(f.cnpj))}</small>` : ''}<td>${esc(f.especialidade || '–')}<td>${esc(f.cidade || '–')}
+    <td>${esc(f.contato || '')}${f.telefone ? `<br><small class="mut">${esc(f.telefone)}</small>` : ''}${f.email ? `<br><small class="mut">${esc(f.email)}</small>` : ''}${!f.contato && !f.telefone && !f.email ? '–' : ''}
+    <td class="r">${BRL(f.pago)}<td class="r ${f.atrasado > 0 ? 'neg' : ''}">${BRL(f.em_aberto)}${f.atrasado > 0 ? '<br><small>atrasado</small>' : ''}<td class="acoes"><button class="btn mini vazado" data-act="fornEditar" data-id="${f.id}">Editar</button></tr>`).join('')}</tbody></table>`
+    : `<div class="vazio"><b>${S.forn.length ? 'Nenhum fornecedor com esse filtro' : 'Nenhum fornecedor cadastrado'}</b>${S.forn.length ? 'Limpe a busca para ver todos.' : 'Cadastre um ou importe a lista que você já tem em Importar.'}</div>`;
+}
+const norm1 = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const fmtCnpj = d => (d.length === 14 ? d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5') : d.length === 11 ? d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : d);
+async function formFornecedor(f = {}) {
+  return perguntar({ titulo: f.id ? 'Editar fornecedor' : 'Novo fornecedor', ok: 'Salvar', campos: [
+    { id: 'nome', rot: 'Nome ou razão social', valor: f.nome, req: true }, { id: 'cnpj', rot: 'CNPJ ou CPF', valor: f.cnpj ? fmtCnpj(f.cnpj) : '' }, { id: 'especialidade', rot: 'Especialidade (ex.: elétrica, esquadrias)', valor: f.especialidade },
+    { id: 'cidade', rot: 'Cidade', valor: f.cidade }, { id: 'contato', rot: 'Pessoa de contato', valor: f.contato }, { id: 'telefone', rot: 'Telefone', valor: f.telefone }, { id: 'email', rot: 'E-mail', tipo: 'email', valor: f.email }, { id: 'observacoes', rot: 'Observações', valor: f.observacoes }] });
+}
+
 /* ---------- ações ---------- */
 const val = id => $('#' + id).value;
 const ACT = {
+  async mesclar(a) {
+    const d = a.dataset;
+    if (!(await perguntar({ titulo: 'Juntar fornecedores', texto: `“${d.nt}” será juntado em “${d.nm}”. As contas e os pagamentos dele passam para “${d.nm}”, e o cadastro “${d.nt}” é removido.`, ok: 'Juntar', perigo: true }))) return;
+    const r = await agir(() => enviar('/api/fornecedores/mesclar', { origem_id: Number(d.tirar), destino_id: Number(d.manter) }), null);
+    if (r) aviso(`Juntado: ${r.contas} conta(s) e ${r.pagamentos} pagamento(s) movidos.`);
+  },
+  async fornNovo() { const r = await formFornecedor(); if (r) await agir(() => enviar('/api/fornecedores', r), 'Fornecedor cadastrado'); },
+  async fornEditar(a) { const f = S.forn.find(x => x.id == a.dataset.id); const r = f && await formFornecedor(f); if (r) await agir(() => enviar('/api/fornecedores/' + f.id, r, 'PUT'), 'Fornecedor atualizado'); },
+  filaTirar(a) { S.fila = S.fila.filter(i => i.id != a.dataset.id); pintaFila(); },
+  async filaImportar(a) { const it = S.fila.find(i => i.id == a.dataset.id); if (it) await gravarItem(it, !!a.dataset.forcar); },
+  async filaTodos() { for (const it of S.fila.filter(i => i.estado === 'pronto' && !i.duplicada)) await gravarItem(it); },
+  usarForn(a) { const it = S.fila.find(i => i.id == a.dataset.id); it.nota.fornecedor = a.dataset.nome; pintaFila(); },
+  parcAdd(a) { const it = S.fila.find(i => i.id == a.dataset.id); it.nota.parcelas.push({ vencimento: '', valor: '' }); pintaFila(); },
+  parcDel(a) { const it = S.fila.find(i => i.id == a.dataset.id); it.nota.parcelas.splice(Number(a.dataset.i), 1); pintaFila(); },
   async novaObra() {
     const r = await perguntar({ titulo: 'Nova obra', campos: [{ id: 'nome', rot: 'Nome da obra', req: true }], ok: 'Criar obra' });
     if (!r || !r.nome.trim()) return;
@@ -291,6 +454,7 @@ const ACT = {
   async delUsuario(a) { if (await perguntar({ titulo: 'Excluir usuário', texto: 'Essa pessoa perde o acesso.', ok: 'Excluir', perigo: true })) await agir(() => api('/api/usuarios/' + a.dataset.id, { method: 'DELETE' }), 'Usuário excluído'); },
 };
 const CHG = {
+  escolher(el) { adicionarArquivos(el.files); el.value = ''; },
   async importOrc(el) {
     const f = el.files[0]; if (!f) return;
     if (S.orc.length && !(await perguntar({ titulo: 'Substituir orçamento', texto: `A planilha vai substituir os ${S.orc.length} itens atuais.`, ok: 'Substituir', perigo: true }))) { el.value = ''; return; }
@@ -313,8 +477,19 @@ const CHG = {
     } catch (e) { aviso(e.message, true); }
   },
 };
+document.addEventListener('input', e => { if (e.target.id === 'fq') pintaForn(); });
+document.addEventListener('dragover', e => { const z = e.target.closest('[data-zona]'); if (z) { e.preventDefault(); z.classList.add('sobre'); } });
+document.addEventListener('dragleave', e => { const z = e.target.closest('[data-zona]'); if (z) z.classList.remove('sobre'); });
+document.addEventListener('drop', e => { const z = e.target.closest('[data-zona]'); if (z) { e.preventDefault(); z.classList.remove('sobre'); adicionarArquivos(e.dataTransfer.files); } });
 document.addEventListener('click', e => { const a = e.target.closest('[data-act]'); if (a && ACT[a.dataset.act]) { e.preventDefault(); ACT[a.dataset.act](a); } });
-document.addEventListener('change', e => { const a = e.target.closest('[data-change]'); if (a && CHG[a.dataset.change]) CHG[a.dataset.change](a); });
+document.addEventListener('change', e => {
+  const t = e.target, it = S.fila.find(i => i.id == (t.dataset.ft || t.dataset.fm || t.dataset.fx || t.dataset.fn || t.dataset.fp));
+  if (t.dataset.ft && it) { it.tipo = t.value; if (ehPlan(it.tipo)) { it.config.mapa = { ...(it.a.mapas?.[it.tipo] || {}) }; recalculaPrevia(it); } else pintaFila(); return; }
+  if (t.dataset.fm && it) { if (t.value === '') delete it.config.mapa[t.dataset.campo]; else it.config.mapa[t.dataset.campo] = Number(t.value); recalculaPrevia(it); return; }
+  if (t.dataset.fx && it) { it[t.dataset.k] = t.value; recalculaPrevia(it); return; }
+  if (t.dataset.fn && it) { it.nota[t.dataset.k] = t.value; if (it.duplicada && ['numero', 'cnpj'].includes(t.dataset.k)) { it.duplicada = false; it.podeForcar = false; } return; }
+  if (t.dataset.fp && it) { it.nota.parcelas[Number(t.dataset.i)][t.dataset.k] = t.value; return; }
+  if (t.id === 'fe') return pintaForn(); const a = e.target.closest('[data-change]'); if (a && CHG[a.dataset.change]) CHG[a.dataset.change](a); });
 
 /* ---------- início ---------- */
 (async () => {

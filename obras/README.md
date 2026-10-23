@@ -2,6 +2,20 @@
 
 Sistema de gestão de obras e financeiro para o engenheiro: orçamento, medição física, cronograma, contas a pagar, fluxo de caixa, documentos e relatório previsto × gasto.
 
+## Importar
+
+A tela **Importar** recebe vários arquivos de uma vez e identifica cada um antes de gravar:
+
+| Arquivo | O que faz |
+|---|---|
+| Nota fiscal **XML** (NF-e) | lê fornecedor, CNPJ, valor e parcelas com exatidão; cria as contas a pagar e o fornecedor; barra a mesma nota lançada duas vezes (pela chave de acesso) |
+| Nota fiscal **PDF** (DANFE com texto) | lê a chave de acesso e o que conseguir (valor, emissão, parcelas); a pessoa confere antes de gravar |
+| Planilha de **orçamento** | reconhece colunas pelo nome, aceita título de etapa em linha separada, confere a soma com o "TOTAL" da planilha |
+| Planilha de **gastos pagos**, **lista de materiais**, **fornecedores** | reconhece colunas; mostra prévia; ignora linhas que já existem |
+| Cotação (comparativo) e outros | guardados em Documentos (o mapa comparativo ainda não existe) |
+
+Nada é gravado sem a pessoa confirmar. PDF escaneado ou foto não é lido (não há OCR). Em **Fornecedores**, nomes parecidos aparecem como possíveis duplicados e podem ser juntados.
+
 ## Publicar
 
 Veja [DEPLOY.md](DEPLOY.md) (Vercel + Neon).

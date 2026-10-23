@@ -51,6 +51,15 @@ CREATE TABLE IF NOT EXISTS documentos (id SERIAL PRIMARY KEY, obra_id INTEGER NO
   nome TEXT, arquivo TEXT, conteudo BYTEA, enviado_em TEXT DEFAULT to_char(now(),'YYYY-MM-DD HH24:MI:SS'));
 ALTER TABLE documentos ADD COLUMN IF NOT EXISTS conteudo BYTEA;
 CREATE TABLE IF NOT EXISTS tentativas (chave TEXT PRIMARY KEY, n INTEGER NOT NULL, ate TIMESTAMPTZ NOT NULL);
+ALTER TABLE fornecedores ADD COLUMN IF NOT EXISTS especialidade TEXT;
+ALTER TABLE fornecedores ADD COLUMN IF NOT EXISTS cidade TEXT;
+ALTER TABLE fornecedores ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE fornecedores ADD COLUMN IF NOT EXISTS telefone TEXT;
+ALTER TABLE fornecedores ADD COLUMN IF NOT EXISTS observacoes TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_fornecedor_doc ON fornecedores (documento) WHERE documento IS NOT NULL AND documento <> '';
+ALTER TABLE contas ADD COLUMN IF NOT EXISTS nf_chave TEXT;
+ALTER TABLE contas ADD COLUMN IF NOT EXISTS nf_numero TEXT;
+CREATE INDEX IF NOT EXISTS idx_contas_nf ON contas (nf_chave);
 CREATE INDEX IF NOT EXISTS idx_contas_venc ON contas (pago_em, vencimento);
 CREATE INDEX IF NOT EXISTS idx_gastos_obra ON gastos (obra_id, etapa);
 `;

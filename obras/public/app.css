@@ -222,6 +222,30 @@ dialog::backdrop{background:rgba(8,14,20,.55)}
 dialog h3{margin:0 0 12px;font:700 20px var(--f-display);letter-spacing:.06em;text-transform:uppercase}
 dialog .rodape{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
 
+/* ---------- importação ---------- */
+.zona{border:2px dashed var(--linha-forte);border-radius:12px;padding:30px 20px;text-align:center;background:var(--cartao-2);transition:border-color .15s,background .15s}
+.zona.sobre{border-color:var(--amarelo);background:color-mix(in srgb,var(--amarelo) 10%,var(--cartao-2))}
+.zona h3{margin:0 0 6px;font:700 24px var(--f-display);letter-spacing:.05em;text-transform:uppercase}
+.zona p{margin:0 0 14px;color:var(--tinta-2)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:14px}
+.chips span{font:500 11px var(--f-dado);letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--linha-forte);border-radius:3px;padding:2px 8px;color:var(--tinta-2);background:var(--cartao)}
+.arq{margin-top:14px}
+.arq-cab{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:14px 18px;border-bottom:1px solid var(--linha)}
+.arq-cab .nm{font-weight:600;overflow-wrap:anywhere}.arq-cab small{color:var(--tinta-2)}
+.arq-cab select{width:auto;min-width:190px}
+.arq-corpo{padding:14px 18px}
+.avisos{margin:0 0 12px;padding:0;list-style:none;display:grid;gap:6px}
+.avisos li{font-size:13px;padding:7px 10px;border-radius:6px;border:1px solid var(--linha);background:var(--cartao-2)}
+.avisos li.ok{border-color:var(--ok);color:var(--ok)}.avisos li.ruim{border-color:var(--perigo);color:var(--perigo)}
+.mapa-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-bottom:12px}
+.previa{border:1px solid var(--linha);border-radius:8px;overflow:auto;max-height:300px}
+.previa table td,.previa table th{padding:6px 10px;font-size:13px}
+.res{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:12px 18px;border-top:1px solid var(--linha);background:var(--cartao-2);border-radius:0 0 10px 10px}
+.res .ok{color:var(--ok);font-weight:600}.res .ruim{color:var(--perigo);font-weight:600}
+.parc{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-bottom:6px;align-items:end}
+.busca{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}.busca input{max-width:340px}.busca select{max-width:240px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--amarelo);margin-right:6px;animation:pisca 1s infinite}
+@keyframes pisca{50%{opacity:.3}}
 /* ---------- responsivo ---------- */
 @media(max-width:1100px){.g4{grid-template-columns:repeat(2,minmax(0,1fr))}.g2{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:860px){

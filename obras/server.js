@@ -222,13 +222,7 @@ const statusConta = (c, h) => c.pago_em ? 'pago' : c.vencimento < h ? 'atrasado'
 const SEL_CONTAS = `SELECT c.*, f.nome AS fornecedor, o.nome AS obra FROM contas c
   LEFT JOIN fornecedores f ON f.id=c.fornecedor_id JOIN obras o ON o.id=c.obra_id`;
 
-app.get('/api/fornecedores', wrap(async (req, res) => res.json(await q('SELECT * FROM fornecedores ORDER BY nome'))));
-app.post('/api/fornecedores', wrap(async (req, res) => {
-  const nome = String(req.body.nome || '').trim();
-  if (!nome) return res.status(400).json({ erro: 'nome obrigatório' });
-  await q('INSERT INTO fornecedores (nome,documento,contato) VALUES (?,?,?) ON CONFLICT (nome) DO NOTHING', [nome, req.body.documento || '', req.body.contato || '']);
-  res.status(201).json(await one('SELECT * FROM fornecedores WHERE nome=?', [nome]));
-}));
+require('./importacao-rotas')(app, { wrap, upload, obraExiste, ID, r2, isoDate, hoje });
 
 app.post('/api/obras/:id/contas', obraExiste, wrap(async (req, res) => {
   const { fornecedor, etapa, descricao, vencimento, valor, parcelas } = req.body;
